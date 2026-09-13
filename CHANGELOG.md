@@ -3,6 +3,13 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.1.1] - 2026-09-13
+
+### Fixed
+- Hilfe-Knopf „Was bedeuten negative Preise für meine Vergütung?" (vorher 63 Zeichen) lief über
+  den Knopfrand; alle drei Hilfe-Knöpfe einheitlich 500 px breit, Prüfstand begrenzt Fragen auf
+  50 Zeichen (Live-Fund Dietmar).
+
 ## [0.1.0] - 2026-09-13
 
 ### Added

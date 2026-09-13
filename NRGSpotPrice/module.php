@@ -782,7 +782,7 @@ class NRGSpotPrice extends IPSModule
                     ['caption' => 'aWATTar — nur Stundenwerte', 'value' => self::SOURCE_AWATTAR],
                 ]],
                 ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => '560px', 'options' => $zones],
-                ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '460px', 'popup' => [
+                ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '500px', 'popup' => [
                     'caption' => 'Welche Quelle und Gebotszone soll ich wählen?',
                     'items' => [
                         ['type' => 'Label', 'caption' => 'Gebotszone: die Zone deines Netzanschlusses — Deutschland und Luxemburg bilden gemeinsam „DE-LU", Österreich ist „AT". Der Preis ist in der ganzen Zone gleich.'],
@@ -805,15 +805,15 @@ class NRGSpotPrice extends IPSModule
             'caption' => '📈  Börsenpreise',
             'items' => [
                 ['type' => 'Label', 'name' => 'PriceSummary', 'caption' => $this->priceSummary()],
-                ['type' => 'PopupButton', 'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?', 'width' => '460px', 'popup' => [
+                ['type' => 'PopupButton', 'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?', 'width' => '500px', 'popup' => [
                     'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?',
                     'items' => [
                         ['type' => 'Label', 'caption' => 'Dein Tarif ist das, was du für Strom aus dem Netz bezahlst — mit Steuern, Umlagen und Netzentgelt. Der Börsenpreis ist der reine Großhandelspreis der Day-Ahead-Auktion.'],
                         ['type' => 'Label', 'caption' => 'Einige Regeln knüpfen ausdrücklich an den Börsenpreis an, egal welchen Tarif du hast — z. B. die Einspeisevergütung bei negativen Preisen oder künftig die Vermarktung von Neuanlagen. Für Kostenvergleiche mit deinem Bezugspreis ist der Börsenpreis dagegen allein nicht geeignet.'],
                     ],
                 ]],
-                ['type' => 'PopupButton', 'caption' => 'Was haben negative Preise mit meiner Einspeisevergütung zu tun?', 'width' => '460px', 'popup' => [
-                    'caption' => 'Was haben negative Preise mit meiner Einspeisevergütung zu tun?',
+                ['type' => 'PopupButton', 'caption' => 'Was bedeuten negative Preise für meine Vergütung?', 'width' => '500px', 'popup' => [
+                    'caption' => 'Was bedeuten negative Preise für meine Vergütung?',
                     'items' => [
                         ['type' => 'Label', 'caption' => 'Für PV-Anlagen mit Inbetriebnahme ab 25.02.2025 (Solarspitzengesetz) entfällt die Einspeisevergütung in jeder Viertelstunde, in der der Day-Ahead-Börsenpreis negativ ist (§ 51 EEG). Die ausgefallene Zeit wird am Ende der Förderdauer teilweise angehängt.'],
                         ['type' => 'Label', 'caption' => 'Ältere Anlagen sind je nach Größe und Inbetriebnahmejahr anders oder gar nicht betroffen. Eine Einordnung für deine Anlage liefert das NRG-Stack EMS über seine Anlagendaten. Keine Rechtsberatung.'],

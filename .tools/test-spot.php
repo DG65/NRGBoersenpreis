@@ -378,6 +378,8 @@ $popups = [];
 array_walk_recursive($f, function () {});
 foreach ($f['elements'] as $el) { foreach ($el['items'] ?? [] as $it) { if (($it['type'] ?? '') === 'PopupButton') { $popups[] = $it; } } }
 check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 3 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 3);
+// Live-Fund 13.09.2026: 63 Zeichen liefen bei 460 px über den Knopfrand (Großbuchstaben-Skin).
+check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 3, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
 check('Knopf „Preise jetzt abrufen" gibt Rückmeldung per echo', str_contains($txt, 'echo SPOT_Update($id);'));
 $m->AckPurposeIntro(); $m->AckNews(); $m->AckForumHint();
 $f2 = form($m);
