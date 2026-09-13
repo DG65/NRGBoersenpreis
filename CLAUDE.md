@@ -86,4 +86,7 @@ lauffähiges Modul trägt (`gh repo edit DG65/NRGSpotPrice --default-branch main
 - ENTSO-E als dritte Quelle (Token-Konto nötig, deshalb nicht Standard).
 - Automatischer Quellenwechsel bei Ausfall (bewusst nicht: gemischte Auflösungen in einer Kurve).
 - Keine Einstufung (`level`) und kein Endkundenpreis — beides Sache des Konsumenten bzw. Tibbers.
+- **Keine eigene Kachel** (Dietmar 13.09.2026): Die Anzeige der Preiskurve (heute/morgen,
+  negative Viertelstunden) übernimmt NRGDashboard über `SPOT_GetPriceCurve`. Dieses Modul
+  liefert nur Daten, Variablen und das Konfigurationsformular.
 - Beweissicherung Einspeisung × Börsenpreis je Viertelstunde (Konzept 7F) gehört ins EMS.
