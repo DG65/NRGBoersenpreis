@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.1.1-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.2.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml)
@@ -62,7 +62,7 @@ Für einen Verlauf einfach die Archivierung von „Börsenpreis jetzt" einschalt
 ## Vertrag für Skripte und andere Module
 
 ```php
-$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.0'
+$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
 // [[ 'start' => int (Unix, inkl.), 'end' => int (Unix, EXKLUSIV),
 //    'price' => float ct/kWh NETTO (reiner Börsenpreis, negativ möglich),
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
@@ -82,8 +82,25 @@ $curve = SPOT_GetPriceCurve($id);   // contractVersion '1.0'
 - Der Getter liest nur den Zwischenspeicher (bei leerem Speicher einmalig gedrosselt nachladen).
 
 ```php
+$past = SPOT_GetPriceHistory($id, strtotime('-7 days'), time());   // seit 1.1
+```
+
+- Dieselben Einträge für einen beliebigen Zeitraum (`from` inklusiv, `to` exklusiv, auf
+  Viertelstunden gerundet, höchstens 400 Tage).
+- Vergangene Viertelstunden stammen aus dem Symcon-Archiv von „Börsenpreis jetzt"
+  (`quelle = 'archiv'`). Das Archiv speichert nur Änderungen, ein Wert gilt deshalb bis zum
+  nächsten — höchstens 12 Stunden, längere Lücken (z. B. Symcon aus) bleiben leer.
+- Was der Zwischenspeicher kennt (heute, morgen), kommt exakt von dort.
+- Vor dem ersten Archiveintrag gibt es keine Einträge. Die Archivierung schaltet das Modul
+  einmalig ein; wer sie abschaltet, verliert nur diesen Rückblick.
+
+```php
 echo SPOT_Update($id);   // sofort abrufen, Ergebnis als Text
 ```
+
+Die Preiskurve mit den negativen Viertelstunden zeigt das
+[NRG-Stack Dashboard](https://github.com/DG65/NRGDashboard) im PV-Monitoring (Reiter
+„Strompreis"). Dieses Modul hat bewusst keine eigene Kachel.
 
 Das Modul setzt kein anderes Modul voraus und wird von keinem vorausgesetzt.
 

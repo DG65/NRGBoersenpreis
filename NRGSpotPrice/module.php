@@ -21,7 +21,7 @@
 //   SPOT_GetPriceCurve() liest nur den Zwischenspeicher — kein Abruf pro
 //   Aufruf (einzige Ausnahme: leerer Speicher, gedrosselt, wie bei Tibber).
 //
-// VERTRAG (contractVersion 1.0, gleiches Format wie TIBBERGR_GetPriceCurve):
+// VERTRAG (contractVersion 1.1, gleiches Format wie TIBBERGR_GetPriceCurve):
 //   Liste aufsteigend nach 'start', je Slot:
 //   start (Unix, inkl.), end (Unix, EXKLUSIV), price (ct/kWh NETTO, reiner
 //   Börsenpreis ohne Steuern/Umlagen/Netzentgelt, negativ erlaubt),
@@ -29,6 +29,9 @@
 //   Konsument), quelle, aufloesung (Sekunden je Originalwert: 900 oder 3600),
 //   contractVersion. Lücken sind zulässig, fehlende Werte werden NIE als 0
 //   geliefert (SUITE.md Stolperstein 15).
+//   SPOT_GetPriceHistory($id, $from, $to) (seit 1.1): dieselben Slots für einen
+//   beliebigen Zeitraum; Vergangenheit aus dem Archiv von „Börsenpreis jetzt"
+//   (quelle 'archiv', Stufenverlauf ≤ 12 h), Bekanntes aus dem Zwischenspeicher.
 //
 // Eigenständig: setzt kein anderes Modul voraus und wird von keinem
 // vorausgesetzt (Konsumenten wie EMS fragen hinter function_exists()).
@@ -39,10 +42,18 @@ class NRGSpotPrice extends IPSModule
     private const LIBRARY_GUID = '{A5CA79FD-57C6-4F6E-A33B-61BCC2B0C9A7}';
     private const MODULE_GUID  = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
 
-    private const CONTRACT_PRICECURVE = '1.0';
+    // 1.0 GetPriceCurve; 1.1 + GetPriceHistory() (gleiches Slot-Format, quelle 'archiv' für
+    // aus dem Archiv rekonstruierte Viertelstunden) — rein additiv, gilt für beide Funktionen.
+    private const CONTRACT_PRICECURVE = '1.1';
+
+    // Symcon-Kernmodul Archive Control (im Verbund 38× verwendet, u. a. EMS/Dashboard).
+    private const ARCHIVE_GUID      = '{43192F0B-135B-4CE7-A0A7-1475603F3060}';
+    private const HISTORY_MAX_DAYS  = 400;   // Obergrenze je GetPriceHistory-Aufruf
+    private const ARCHIVE_PAGE      = 10000; // Zeilen je AC_GetLoggedValues-Seite
+    private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.1.0';
+    private const NEWS_VERSION = '0.2.0';
     private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
@@ -86,6 +97,9 @@ class NRGSpotPrice extends IPSModule
         $this->RegisterAttributeInteger('BlockedUntil', 0);
         $this->RegisterAttributeString('LastError', '');
         $this->RegisterAttributeString('LoggedError', '');
+        // Archivierung von „Börsenpreis jetzt" wird genau EINMAL eingeschaltet (Grundlage für
+        // GetPriceHistory). Schaltet der Nutzer sie danach ab, bleibt sie aus.
+        $this->RegisterAttributeBoolean('ArchiveInitDone', false);
 
         $this->RegisterAttributeBoolean('PurposeIntroGone', false);
         $this->RegisterAttributeString('SeenNews', '');
@@ -109,6 +123,7 @@ class NRGSpotPrice extends IPSModule
         $this->MaintainVariable('NegativeNow', 'Negativer Börsenpreis jetzt', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
         $this->MaintainVariable('NextNegativeStart', 'Nächste negative Viertelstunde', VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
         $this->MaintainVariable('TomorrowAvailable', 'Preise für morgen veröffentlicht', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 4, true);
+        $this->ensureArchiving();
 
         // Quelle oder Gebotszone gewechselt: alte Preise gehören nicht mehr zur
         // Einstellung und dürfen nicht als aktuelle Kurve weitergereicht werden.
@@ -150,25 +165,46 @@ class NRGSpotPrice extends IPSModule
             }
         }
         $todayStart = $this->dayStart($this->now(), 0);
-        $quelle = ((int)($cache['source'] ?? $this->source())) === self::SOURCE_AWATTAR ? 'awattar' : 'energy-charts';
+        $quelle = $this->cacheQuelle($cache);
         $out = [];
         foreach ($cache['slots'] ?? [] as $s) {
             if ((int)$s['end'] <= $todayStart) {
                 continue; // gestern — gehört nicht mehr zu "heute + morgen"
             }
-            $out[] = [
-                'start'           => (int)$s['start'],
-                'end'             => (int)$s['end'],
-                'price'           => (float)$s['price'],
-                'basis'           => 'spot',
-                'netzentgelt'     => 'fehlt',
-                'level'           => null,
-                'quelle'          => $quelle,
-                'aufloesung'      => (int)$s['res'],
-                'contractVersion' => self::CONTRACT_PRICECURVE,
-            ];
+            $out[] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res']);
         }
         return $out;
+    }
+
+    /**
+     * SPOT_GetPriceHistory($id, int $from, int $to): array — Börsenpreise je Viertelstunde mit
+     * start in [$from, $to), gleiches Slot-Format wie GetPriceCurve (Vertrag 1.1).
+     *
+     * Vergangenheit kommt aus dem Symcon-Archiv der Variable „Börsenpreis jetzt": Das Archiv
+     * speichert nur Änderungen, deshalb gilt ein Wert bis zum nächsten (Stufenverlauf, höchstens
+     * 12 h) — quelle 'archiv', aufloesung 900. Viertelstunden, die der Zwischenspeicher kennt (heute,
+     * morgen, ggf. gestern), kommen exakt von dort und haben Vorrang. Vor dem ersten
+     * Archiveintrag und in der Zukunft ohne veröffentlichte Preise gibt es KEINE Einträge (nie
+     * erfunden, nie 0). Kein Abruf bei der Quelle. Höchstens 400 Tage je Aufruf.
+     */
+    public function GetPriceHistory(int $from, int $to): array
+    {
+        $from = intdiv($from, 900) * 900;
+        $to = intdiv($to + 899, 900) * 900;
+        $from = max($from, strtotime('-' . self::HISTORY_MAX_DAYS . ' days', $to));
+        if ($to <= $from) {
+            return [];
+        }
+        $slots = $this->archivedSlots($from, $to);
+        $cache = $this->cache();
+        $quelle = $this->cacheQuelle($cache);
+        foreach ($cache['slots'] ?? [] as $s) {
+            if ($s['start'] >= $from && $s['start'] < $to) {
+                $slots[(int)$s['start']] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res']);
+            }
+        }
+        ksort($slots);
+        return array_values($slots);
     }
 
     // -----------------------------------------------------------------
@@ -521,6 +557,121 @@ class NRGSpotPrice extends IPSModule
         }
     }
 
+    // -----------------------------------------------------------------
+    // Archiv (Grundlage für GetPriceHistory)
+    // -----------------------------------------------------------------
+
+    private function archiveID(): int
+    {
+        $list = IPS_GetInstanceListByModuleID(self::ARCHIVE_GUID);
+        return count($list) > 0 ? (int)$list[0] : 0;
+    }
+
+    /** Archivierung von „Börsenpreis jetzt" einmalig einschalten — danach Nutzer-Hoheit. */
+    private function ensureArchiving(): void
+    {
+        if ($this->ReadAttributeBoolean('ArchiveInitDone') || !function_exists('AC_SetLoggingStatus')) {
+            return;
+        }
+        $arch = $this->archiveID();
+        $vid = IPS_GetObjectIDByIdent('CurrentPrice', $this->InstanceID);
+        if ($arch <= 0 || $vid === false) {
+            return; // kein Archiv (noch) — beim nächsten Übernehmen erneut versuchen
+        }
+        if (!AC_GetLoggingStatus($arch, (int)$vid)) {
+            AC_SetLoggingStatus($arch, (int)$vid, true);
+            IPS_ApplyChanges($arch);
+            $this->SendDebug('Archiv', 'Archivierung von „Börsenpreis jetzt" eingeschaltet', 0);
+        }
+        $this->WriteAttributeBoolean('ArchiveInitDone', true);
+    }
+
+    /**
+     * Viertelstunden [$from, $to) aus dem Archiv als Stufenverlauf, höchstens bis zur laufenden
+     * Viertelstunde. Rückgabe: [start => Vertrags-Slot].
+     */
+    private function archivedSlots(int $from, int $to): array
+    {
+        if (!function_exists('AC_GetLoggedValues')) {
+            return [];
+        }
+        $arch = $this->archiveID();
+        $vid = IPS_GetObjectIDByIdent('CurrentPrice', $this->InstanceID);
+        if ($arch <= 0 || $vid === false) {
+            return [];
+        }
+        $vid = (int)$vid;
+        $rows = [];
+        $end = $to - 1;
+        for ($page = 0; $page < 20; $page++) {
+            $chunk = @AC_GetLoggedValues($arch, $vid, $from, $end, self::ARCHIVE_PAGE);
+            if (!is_array($chunk) || count($chunk) === 0) {
+                break;
+            }
+            $rows = array_merge($rows, $chunk);
+            if (count($chunk) < self::ARCHIVE_PAGE) {
+                break;
+            }
+            $end = min(array_column($chunk, 'TimeStamp')) - 1;
+        }
+        $before = @AC_GetLoggedValues($arch, $vid, 0, $from - 1, 1);
+        $current = null;
+        $since = 0;
+        if (is_array($before) && count($before) > 0) {
+            $current = (float)$before[0]['Value'];
+            $since = intdiv((int)$before[0]['TimeStamp'], 900) * 900;
+        }
+
+        // Jeder Archivwert gehört zu der Viertelstunde, in der er geschrieben wurde.
+        $bySlot = [];
+        foreach ($rows as $r) {
+            $bySlot[intdiv((int)$r['TimeStamp'], 900) * 900][] = $r;
+        }
+        foreach ($bySlot as &$list) {
+            usort($list, function ($a, $b) {
+                return $a['TimeStamp'] <=> $b['TimeStamp'];
+            });
+            $list = (float)end($list)['Value'];
+        }
+        unset($list);
+
+        $out = [];
+        $last = min($to, intdiv($this->now(), 900) * 900 + 900);
+        for ($t = $from; $t < $last; $t += 900) {
+            if (isset($bySlot[$t])) {
+                $current = $bySlot[$t];
+                $since = $t;
+            }
+            // Ein Archivwert gilt bis zum nächsten — aber höchstens 12 h: Das Archiv kann einen
+            // gleichbleibenden Preis nicht von einem Stillstand (Symcon aus) unterscheiden, und
+            // über Stunden identische Viertelstundenpreise kommen praktisch nicht vor.
+            if ($current !== null && $t - $since < self::HOLD_MAX_SECONDS) {
+                $out[$t] = $this->contractSlot($t, $t + 900, $current, 'archiv', 900);
+            }
+        }
+        return $out;
+    }
+
+    private function contractSlot(int $start, int $end, float $price, string $quelle, int $res): array
+    {
+        return [
+            'start'           => $start,
+            'end'             => $end,
+            'price'           => $price,
+            'basis'           => 'spot',
+            'netzentgelt'     => 'fehlt',
+            'level'           => null,
+            'quelle'          => $quelle,
+            'aufloesung'      => $res,
+            'contractVersion' => self::CONTRACT_PRICECURVE,
+        ];
+    }
+
+    private function cacheQuelle(array $cache): string
+    {
+        return ((int)($cache['source'] ?? $this->source())) === self::SOURCE_AWATTAR ? 'awattar' : 'energy-charts';
+    }
+
     private function setIfChanged(string $ident, $value): void
     {
         if ($this->GetValue($ident) !== $value) {
@@ -738,9 +889,8 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
             'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
             'items' => [
-                ['type' => 'Label', 'caption' => '• Erstes Release: Day-Ahead-Börsenpreise heute + morgen von Energy-Charts (Viertelstunden, Standard) oder aWATTar (Stundenwerte), Gebotszone DE-LU oder AT.'],
-                ['type' => 'Label', 'caption' => '• Verbund-Vertrag SPOT_GetPriceCurve() im selben Format wie die Tibber-Preiskurve (basis „spot"), Variablen für den aktuellen Preis und die nächste negative Viertelstunde.'],
-                ['type' => 'Label', 'caption' => '• Sparsamer Abruf: nur wenn etwas fehlt, Pausen der Quelle (Ratenlimit) werden eingehalten.'],
+                ['type' => 'Label', 'caption' => '• Preisverlauf: „Börsenpreis jetzt" wird jetzt archiviert (einmalig eingeschaltet, abschaltbar). Daraus liefert SPOT_GetPriceHistory() auch vergangene Tage — z. B. für das NRG-Stack Dashboard, das so rückblickend zeigt, wann es negative Preise gab. Der Verlauf beginnt mit dieser Version.'],
+                ['type' => 'Label', 'caption' => '• Die Preiskurve für heute und morgen zeigt das NRG-Stack Dashboard im PV-Monitoring, Reiter „Strompreis".'],
                 ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'],
             ],
         ];
@@ -759,8 +909,10 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'Label', 'caption' => $verTxt],
                 ['type' => 'Label', 'caption' => 'Was geliefert wird: der Day-Ahead-Börsenpreis der gewählten Gebotszone je Viertelstunde, umgerechnet in ct/kWh, NETTO — ohne Steuern, Umlagen und Netzentgelt. Negative Preise werden genau so weitergegeben. Das ist nicht dein Endkundenpreis.'],
                 ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
-                ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. Wer einen Verlauf möchte, schaltet für „Börsenpreis jetzt" die Archivierung ein.'],
+                ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
+                ['type' => 'Label', 'caption' => 'Anzeige: Die Preiskurve für heute und morgen mit den negativen Viertelstunden zeigt das NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis"). Die Variablen lassen sich zusätzlich per Verknüpfung im Objektbaum in den Bereich des WebFronts legen.'],
                 ['type' => 'Label', 'caption' => 'Skripte und andere Module: SPOT_GetPriceCurve(<InstanzID>) liefert eine Liste aller Viertelstunden von heute und (sobald veröffentlicht) morgen — je Eintrag start, end (exklusiv, Unixzeit), price (ct/kWh), basis „spot", netzentgelt „fehlt", level (immer leer), quelle, aufloesung (900 = Viertelstunde, 3600 = aus Stundenwert verteilt) und contractVersion. Lücken sind möglich, fehlende Werte stehen nie als 0 drin.'],
+                ['type' => 'Label', 'caption' => 'SPOT_GetPriceHistory(<InstanzID>, von, bis) liefert dieselben Einträge für einen beliebigen Zeitraum (Unixzeit, bis exklusiv, höchstens 400 Tage). Vergangene Viertelstunden stammen aus dem Archiv (quelle „archiv", Stufenverlauf: ein Wert gilt bis zum nächsten, höchstens 12 Stunden — längere Lücken, z. B. während Symcon aus war, bleiben leer); vor dem ersten Archiveintrag gibt es keine Einträge.'],
                 ['type' => 'Label', 'caption' => 'SPOT_Update(<InstanzID>) ruft sofort ab und liefert das Ergebnis als Text. Zeitumstellung: Tage mit 23 bzw. 25 Stunden haben 92 bzw. 100 Viertelstunden — alle Zeitstempel sind echte Unixzeit, nichts wird aus festen Tageslängen errechnet.'],
                 ['type' => 'Label', 'caption' => 'Keine Rechtsberatung: Welche Pflichten für deine Anlage bei negativen Preisen gelten, hängt u. a. vom Inbetriebnahmedatum ab. Das NRG-Stack EMS ordnet das über seine Anlagendaten ein; dieses Modul liefert nur die Preise.'],
             ],

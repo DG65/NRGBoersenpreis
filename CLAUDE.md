@@ -15,7 +15,15 @@
 - **Konsument:** EMS (nimmt Tibber, wenn vorhanden, sonst dieses Modul — EMS-Seite baut die
   EMS-Sitzung). Abstimmung per `mcp__ccd_session_mgmt__send_message` nur mit EMS.
 
-## Vertrag `SPOT_GetPriceCurve(int $id): array` — contractVersion 1.0
+## Vertrag `SPOT_GetPriceCurve(int $id): array` — contractVersion 1.1
+
+**1.1 (0.2.0):** `SPOT_GetPriceHistory(int $id, int $from, int $to): array`, gleiche Slots,
+Vergangenheit aus dem Archiv von `CurrentPrice` (`quelle='archiv'`, Stufenverlauf, höchstens
+12 h je Wert — Archiv speichert nur Änderungen und kann Stillstand nicht von gleichem Preis
+unterscheiden), Zwischenspeicher hat Vorrang, max. 400 Tage. Archivierung wird genau einmal
+eingeschaltet (`ArchiveInitDone`), danach Nutzer-Hoheit. Wunsch Dashboard, Entscheidung
+Dietmar 13.09.2026 („über das Archiv").
+
 
 Liste aufsteigend, je Slot: `start` (inkl.), `end` (EXKLUSIV), `price` (ct/kWh netto, negativ
 erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`

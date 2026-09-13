@@ -3,6 +3,22 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.2.0] - 2026-09-13
+
+### Added
+- **Vertrag 1.1: `SPOT_GetPriceHistory($id, $from, $to)`** — Börsenpreise je Viertelstunde für
+  einen beliebigen Zeitraum (höchstens 400 Tage), gleiches Slot-Format wie `GetPriceCurve`.
+  Vergangenheit aus dem Archiv von „Börsenpreis jetzt" (`quelle='archiv'`, Stufenverlauf, ein
+  Wert gilt höchstens 12 h weiter — längere Lücken bleiben leer), Bekanntes exakt aus dem
+  Zwischenspeicher. Nichts vor dem ersten Archiveintrag, nichts erfunden, kein Abruf bei der
+  Quelle. Wunsch des NRG-Stack Dashboards (Rückblick auf negative Preise), Entscheidung Dietmar.
+- Archivierung von „Börsenpreis jetzt" wird einmalig eingeschaltet (auch bei bestehenden
+  Instanzen); schaltet der Nutzer sie ab, bleibt sie aus.
+
+### Changed
+- `contractVersion` von `GetPriceCurve` 1.0 → 1.1 (rein additiv, keine Feldänderung).
+- Doku/Neu-Panel nennen die Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis").
+
 ## [0.1.1] - 2026-09-13
 
 ### Fixed

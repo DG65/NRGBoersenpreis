@@ -46,6 +46,21 @@ function IPS_SetVariableProfileText(string $n, string $p, string $s): bool { $GL
 function IPS_SetVariableProfileAssociation(string $n, $v, string $c, string $i, int $col): bool { $GLOBALS['PROFILES'][$n]['assoc'][(string)$v] = $c; return true; }
 function IPS_LogMessage(string $s, string $m): bool { $GLOBALS['LOG'][] = "$s: $m"; return true; }
 function IPS_GetLibrary(string $guid): array { return ['Version' => '0.0.0-test', 'Build' => 0]; }
+// Archive Control: wie Symcon speichert das Archiv nur WERTÄNDERUNGEN (siehe IPSModule::SetValue).
+$GLOBALS['ARCHIVES'] = [];  // vorhandene Archiv-Instanzen
+$GLOBALS['AC_LOG'] = [];    // vid => Archivierung an?
+$GLOBALS['AC'] = [];        // vid => [['TimeStamp' => ts, 'Value' => v], ...]
+$GLOBALS['AC_APPLY'] = 0;
+function IPS_GetInstanceListByModuleID(string $guid): array { return $guid === '{43192F0B-135B-4CE7-A0A7-1475603F3060}' ? $GLOBALS['ARCHIVES'] : []; }
+function IPS_ApplyChanges(int $id): bool { $GLOBALS['AC_APPLY']++; return true; }
+function AC_GetLoggingStatus(int $a, int $v): bool { return $GLOBALS['AC_LOG'][$v] ?? false; }
+function AC_SetLoggingStatus(int $a, int $v, bool $s): bool { $GLOBALS['AC_LOG'][$v] = $s; return true; }
+function AC_GetLoggedValues(int $a, int $v, int $start, int $end, int $limit)
+{
+    $rows = array_values(array_filter($GLOBALS['AC'][$v] ?? [], fn($r) => $r['TimeStamp'] >= $start && ($end === 0 || $r['TimeStamp'] <= $end)));
+    usort($rows, fn($x, $y) => $y['TimeStamp'] <=> $x['TimeStamp']); // neueste zuerst
+    return array_slice($rows, 0, $limit > 0 ? $limit : 10000);
+}
 
 class IPSModule
 {
@@ -85,7 +100,15 @@ class IPSModule
             $GLOBALS['VARS'][$GLOBALS['NEXT_ID']++] = ['type' => $type, 'value' => $def, 'name' => $name, 'ident' => $ident, 'parent' => $this->InstanceID, 'profile' => $profile];
         }
     }
-    public function SetValue(string $ident, $v): void { $GLOBALS['VARS'][IPS_GetObjectIDByIdent($ident, $this->InstanceID)]['value'] = $v; }
+    public function SetValue(string $ident, $v): void
+    {
+        $id = IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $GLOBALS['VARS'][$id]['value'] = $v;
+        $log = $GLOBALS['AC'][$id] ?? [];
+        if (($GLOBALS['AC_LOG'][$id] ?? false) && (count($log) === 0 || end($log)['Value'] !== $v)) {
+            $GLOBALS['AC'][$id][] = ['TimeStamp' => $GLOBALS['CLOCK'], 'Value' => $v];
+        }
+    }
     public function GetValue(string $ident) { return $GLOBALS['VARS'][IPS_GetObjectIDByIdent($ident, $this->InstanceID)]['value']; }
 }
 
@@ -169,7 +192,7 @@ $c = $m->GetPriceCurve();
 check('96 Viertelstunden, kein weiterer Abruf (liest nur den Speicher)', count($c) === 96 && count($GLOBALS['REQUESTS']) === 1, count($c) . ' / ' . count($GLOBALS['REQUESTS']));
 $e = $c[0];
 check('Felder exakt: start/end/price/basis/netzentgelt/level/quelle/aufloesung/contractVersion', array_keys($e) === ['start', 'end', 'price', 'basis', 'netzentgelt', 'level', 'quelle', 'aufloesung', 'contractVersion'], implode(',', array_keys($e)));
-check('Typen: int/int/float/string/string/null/string/int/string', is_int($e['start']) && is_int($e['end']) && is_float($e['price']) && $e['level'] === null && is_int($e['aufloesung']) && $e['contractVersion'] === '1.0');
+check('Typen: int/int/float/string/string/null/string/int/string', is_int($e['start']) && is_int($e['end']) && is_float($e['price']) && $e['level'] === null && is_int($e['aufloesung']) && $e['contractVersion'] === '1.1');
 check('basis=spot, netzentgelt=fehlt, quelle=energy-charts, aufloesung=900', $e['basis'] === 'spot' && $e['netzentgelt'] === 'fehlt' && $e['quelle'] === 'energy-charts' && $e['aufloesung'] === 900);
 check('Beginnt 00:00, lückenlos, end EXKLUSIV = start des nächsten', $c[0]['start'] === ts('2026-09-12 00:00:00') && contiguous($c) && end($c)['end'] === ts('2026-09-13 00:00:00'));
 check('Preis exakt EUR/MWh ÷ 10', abs($c[40]['price'] - $ec['price'][40] / 10) < 1e-9);
@@ -389,7 +412,7 @@ check('aWATTar gewählt: Hinweis auf Stundenwerte und faire Nutzung', str_contai
 
 heading('13. Vertrags- und Code-Hygiene (SUITE.md Stolperstein 8/9/13/18/20)');
 $rc = new ReflectionClass(NRGSpotPrice::class);
-foreach (['GetPriceCurve', 'Update', 'Tick', 'AckPurposeIntro', 'AckNews', 'AckForumHint'] as $name) {
+foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'AckPurposeIntro', 'AckNews', 'AckForumHint'] as $name) {
     $rm = $rc->getMethod($name);
     $okTypes = true; $okDefaults = true;
     foreach ($rm->getParameters() as $p) {
@@ -414,6 +437,57 @@ check('Sichtbare Datumsangaben immer mit Jahr (TT.MM.JJJJ, Store-Checkliste 9b)'
 check('library.json: nur die 8 erlaubten Felder, Name „NRG-Stack Börsenpreis"', ($lj = json_decode(file_get_contents(dirname(__DIR__) . '/library.json'), true)) && array_keys($lj) === ['id', 'author', 'name', 'url', 'compatibility', 'version', 'build', 'date'] && $lj['name'] === 'NRG-Stack Börsenpreis' && $lj['compatibility'] === ['version' => '9.0']);
 $mj = json_decode(file_get_contents(dirname(__DIR__) . '/NRGSpotPrice/module.json'), true);
 check('module.json: Klasse = name, Präfix SPOT, GUIDs passen zur Klasse', $mj['name'] === 'NRGSpotPrice' && $mj['prefix'] === 'SPOT' && $mj['library'] === $lj['id'] && str_contains($code, $mj['id']) && str_contains($code, $lj['id']));
+
+heading('14. Preisverlauf aus dem Archiv (Vertrag 1.1, SPOT_GetPriceHistory)');
+$GLOBALS['ARCHIVES'] = [99]; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = []; $GLOBALS['AC_APPLY'] = 0;
+clock('2026-05-01 00:00:30');
+$m = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-05-01.json'));
+$m->ApplyChanges();
+$vid = IPS_GetObjectIDByIdent('CurrentPrice', 12345);
+check('Archivierung von „Börsenpreis jetzt" eingeschaltet, Archiv übernommen, Merker gesetzt', ($GLOBALS['AC_LOG'][$vid] ?? false) === true && $GLOBALS['AC_APPLY'] === 1 && $m->attrs['ArchiveInitDone'] === true);
+check('Erster Preis schon im Archiv (Archivierung vor dem ersten Setzen eingeschaltet)', count($GLOBALS['AC'][$vid] ?? []) === 1);
+$GLOBALS['AC_LOG'][$vid] = false;
+$m->ApplyChanges();
+check('Nutzer schaltet Archivierung ab: bleibt aus, kein erneutes Übernehmen', $GLOBALS['AC_LOG'][$vid] === false && $GLOBALS['AC_APPLY'] === 1);
+$GLOBALS['AC_LOG'][$vid] = true;
+for ($t = ts('2026-05-01 00:15:02'); $t < ts('2026-05-02 00:00:00'); $t += 900) { $GLOBALS['CLOCK'] = $t; $m->Tick(); }
+$ecNeg = json_decode(fx('ec-DE-LU-2026-05-01.json'), true);
+$changes = 1;
+for ($i = 1; $i < count($ecNeg['price']); $i++) { if ($ecNeg['price'][$i] !== $ecNeg['price'][$i - 1]) { $changes++; } }
+check('Archiv hält nur die Wertänderungen des Tages (' . $changes . ')', count($GLOBALS['AC'][$vid]) === $changes, (string)count($GLOBALS['AC'][$vid]));
+clock('2026-05-02 10:00:00');
+$m->attrs['PriceCache'] = '{}'; // Zwischenspeicher weg → nur noch das Archiv kennt den 01.05.
+$h = $m->GetPriceHistory(ts('2026-05-01 00:00:00'), ts('2026-05-02 00:00:00'));
+check('Verlauf 01.05.: 96 Viertelstunden, quelle archiv, aufloesung 900, lückenlos, Vertrag 1.1', count($h) === 96 && $h[0]['quelle'] === 'archiv' && $h[0]['aufloesung'] === 900 && contiguous($h) && $h[0]['contractVersion'] === '1.1', (string)count($h));
+$exact = count($h) === 96;
+foreach ($h as $i => $s) { if (abs($s['price'] - $ecNeg['price'][$i] / 10) > 1e-9) { $exact = false; } }
+check('Jede Viertelstunde exakt der Börsenpreis (Stufenverlauf stellt gleiche Folgewerte wieder her)', $exact);
+check('32 negative Viertelstunden auch im Rückblick', count(array_filter($h, fn($s) => $s['price'] < 0)) === 32);
+$h2 = $m->GetPriceHistory(ts('2026-05-01 12:05:00'), ts('2026-05-01 13:00:00'));
+check('Ausschnitt 12:05–13:00: auf Viertelstunden gerundet (12:00–13:00), Wert vor Beginn übernommen', count($h2) === 4 && $h2[0]['start'] === ts('2026-05-01 12:00:00') && abs($h2[0]['price'] - $ecNeg['price'][48] / 10) < 1e-9);
+check('Vor dem ersten Archiveintrag: keine Einträge (nichts erfunden)', $m->GetPriceHistory(ts('2026-04-30 00:00:00'), ts('2026-05-01 00:00:00')) === []);
+check('Zukunft ohne veröffentlichte Preise: keine Einträge', $m->GetPriceHistory(ts('2026-05-03 00:00:00'), ts('2026-05-04 00:00:00')) === []);
+check('Leerer oder verkehrter Zeitraum: leer', $m->GetPriceHistory(ts('2026-05-01 12:00:00'), ts('2026-05-01 12:00:00')) === [] && $m->GetPriceHistory(ts('2026-05-02 00:00:00'), ts('2026-05-01 00:00:00')) === []);
+$lastChange = intdiv(max(array_column($GLOBALS['AC'][$vid], 'TimeStamp')), 900) * 900;
+clock('2026-05-02 20:00:00');
+$h5 = $m->GetPriceHistory(ts('2026-05-02 00:00:00'), ts('2026-05-02 20:00:00'));
+check('Stillstand (keine Ticks am 02.05.): letzter Wert gilt höchstens 12 h, danach leer statt erfunden', count($h5) > 0 && end($h5)['start'] === $lastChange + 43200 - 900, count($h5) . ' / ' . date('d.m.Y H:i', end($h5)['start'] ?? 0));
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+clock('2026-09-12 10:00:00');
+$m->Update();
+$h6 = $m->GetPriceHistory(ts('2026-09-12 00:00:00'), ts('2026-09-13 00:00:00'));
+check('Heute kommt exakt aus dem Zwischenspeicher (quelle energy-charts, auch künftige Viertelstunden)', count($h6) === 96 && $h6[0]['quelle'] === 'energy-charts' && $h6[95]['quelle'] === 'energy-charts');
+$GLOBALS['AC'][$vid][] = ['TimeStamp' => ts('2026-09-12 09:00:05'), 'Value' => 999.0]; // widersprüchlicher Archivwert
+usort($GLOBALS['AC'][$vid], fn($x, $y) => $x['TimeStamp'] <=> $y['TimeStamp']);
+$h7 = $m->GetPriceHistory(ts('2026-09-12 09:00:00'), ts('2026-09-12 09:15:00'));
+check('Archiv und Zwischenspeicher widersprechen sich: der exakte Speicherwert gewinnt', count($h7) === 1 && abs($h7[0]['price'] - $ec['price'][36] / 10) < 1e-9 && $h7[0]['quelle'] === 'energy-charts', json_encode($h7));
+$GLOBALS['ARCHIVES'] = [];
+check('Ohne Archiv-Instanz: Verlauf nur aus dem Zwischenspeicher, kein Fehler', count($m->GetPriceHistory(ts('2026-05-01 00:00:00'), ts('2026-09-13 00:00:00'))) === 96);
+$m2 = fresh();
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$m2->ApplyChanges();
+check('Ohne Archiv-Instanz beim Anlegen: Merker bleibt offen (später erneut versuchen)', $m2->attrs['ArchiveInitDone'] === false);
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
