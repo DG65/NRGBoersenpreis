@@ -1,0 +1,12 @@
+{
+  "id": "{A5CA79FD-57C6-4F6E-A33B-61BCC2B0C9A7}",
+  "author": "DG65",
+  "name": "NRG-Stack Börsenpreis",
+  "url": "https://github.com/DG65/NRGSpotPrice",
+  "compatibility": {
+    "version": "9.0"
+  },
+  "version": "0.1.0",
+  "build": 1,
+  "date": 1789257600
+}

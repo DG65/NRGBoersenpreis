@@ -1,0 +1,24 @@
+name: Check Style
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+      - name: PHP Syntax-Check
+        run: find . -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: Eigenständigkeit (function_exists-Wächter)
+        run: php .tools/check-standalone.php
+      # Prüfstand gegen nachgebildetes IPS und echte, eingefrorene Quellantworten
+      # (.tools/fixtures): Parser je Quelle, negative Preise, fehlender Folgetag,
+      # Ratenlimit, Sommerzeit (23/25-Stunden-Tag), Vertrag, Formular. Ein Push,
+      # der davon etwas bricht, wird hier rot, BEVOR er bei jemandem landet.
+      - name: Prüfstand Abruf/Vertrag/Formular
+        run: php .tools/test-spot.php
