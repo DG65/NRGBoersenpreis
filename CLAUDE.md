@@ -75,6 +75,12 @@ auf **`ems-integration`** (SUITE.md „Verbund-weiter Arbeitsbranch", Dietmar 13
 Bewährung Merge nach `beta`; `beta`→`main` entscheidet Dietmar. `LICENSE_URL` zeigt auf `main`
 (PolyForm von Anfang an).
 
+**GitHub-Standard-Branch = `ems-integration`** (seit 13.09.2026): Die Modulverwaltung klont beim
+Anlegen den Standard-Branch — lag er auf dem Grundgerüst-`main` ohne `library.json`, brach die
+Installation mit „This repository seems corrupted. library.json is at least missing!
+(Code: -32603)" ab (live bei Dietmar). Erst zurück auf `main` stellen, wenn `main` selbst ein
+lauffähiges Modul trägt (`gh repo edit DG65/NRGSpotPrice --default-branch main`).
+
 ## Roadmap / bewusst nicht drin
 
 - ENTSO-E als dritte Quelle (Token-Konto nötig, deshalb nicht Standard).
