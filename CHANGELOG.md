@@ -3,6 +3,20 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.4.0] - 2026-09-14
+
+### Added
+- **Quelle „Tibber-Preisübersicht“** — Tibbers öffentliche Preisübersicht, wie in Symcons Modul
+  „Strompreis“: ohne Tibber-Konto, nur mit Postleitzahl (Feld leer als Vorgabe, wird an Tibber
+  übertragen). Liefert je Viertelstunde den Börsenpreis (Bestandteil „power“, am 14.09.2026 gegen
+  Energy-Charts geprüft: alle 96 Viertelstunden ±0,005 ct), Netzentgelt und Abgaben der
+  Postleitzahl sowie den Endpreis. Vertrag, „Börsenpreis jetzt“ und die übrigen Variablen nutzen
+  den Börsenpreisanteil (`quelle = 'tibber'`); **die Variable „Marktdaten (Energie Manager)“
+  bekommt Tibbers Endpreis inkl. MwSt** — der Tibber-Preis ohne Tibber-Zugang, Grundpreis/Steuer/
+  Aufschlag entfallen dann. Nur Gebotszone DE-LU. Tibber nennt Ortszeit ohne Zeitzone; die
+  doppelte Stunde am 25-Stunden-Tag wird über die lückenlose Folge richtig zugeordnet.
+  Keine offiziell dokumentierte Tibber-Schnittstelle.
+
 ## [0.3.0] - 2026-09-14
 
 ### Added

@@ -75,6 +75,16 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
   NICHT: EPEX gibt Marktdaten für externe Nutzung nur mit Vertrag ab (General Conditions of Data
   Use). Kein echter Token in dieser Sitzung — Prüfstand nutzt aus Energy-Charts-Preisen erzeugtes
   A44-XML (Format nach Symcons Test-Fixture + ENTSO-E-Doku); Live-Test mit echtem Schlüssel offen.
+- **Tibber-Preisübersicht** (seit 0.4.0, Dietmar 14.09.2026 „Tibber-Preis ohne Tibberzugang“):
+  `https://tibber.com/de/api/lookup/price-overview?postalCode=PLZ` (öffentlich, undokumentiert,
+  genutzt auch von symcon/Strompreis). `energy.today/tomorrowQuarterHours[]` mit date/hour/
+  minute (Ortszeit ohne Zeitzone!), `priceIncludingVat`, `priceComponents[power|grid|taxes]`
+  (EUR/kWh). `power` = Börsenpreis (±0,005 ct gegen Energy-Charts, 14.09.2026) → Vertrag;
+  Endpreis inkl. MwSt als `retail` im Cache → NUR Variable MarketData (Tarif-Felder entfallen).
+  PLZ-Property leer als Vorgabe, Cache enthält `plz` (Wechsel → verwerfen). Zeitzuordnung:
+  lückenlose Folge (vorig + Raster = gleiche Wanduhrzeit) vor mktime() — sonst landet die
+  doppelte 02:xx-Stunde falsch. Nur DE-LU. `retail` bewusst nicht im Verbund-Vertrag
+  (Endpreis einer PLZ ≠ Vertrag des Nutzers; EMS nimmt Bezugspreis nur aus Tibber-Modul/manuell).
 - **Symcon Energie Manager** (seit 0.3.0): Variable `MarketData` im Format von
   symcon/Strompreis (`NormalizeAndReduce`): `[{start,end,price ct/kWh}]`, ab laufender
   Viertelstunde ≤ 96 Einträge (24 h), Preis = Grundpreis + spot × (1+Steuer) × (1+Aufschlag),

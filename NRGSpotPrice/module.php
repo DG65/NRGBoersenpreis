@@ -52,7 +52,7 @@ class NRGSpotPrice extends IPSModule
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.3.0';
+    private const NEWS_VERSION = '0.4.0';
     private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
@@ -70,6 +70,12 @@ class NRGSpotPrice extends IPSModule
         'DE-LU' => '10Y1001A1001A82H',
         'AT'    => '10YAT-APG------L',
     ];
+    // Tibbers öffentliche Preisübersicht (wie in Symcons „Strompreis“): ohne Konto, je
+    // Postleitzahl. Bestandteil „power“ = Börsenpreis (am 14.09.2026 gegen Energy-Charts
+    // geprüft: alle 96 Viertelstunden ±0,005 ct), dazu „grid“ (Netzentgelt der PLZ) und
+    // „taxes“ → Tibber-Endpreis. Kein dokumentierter API-Vertrag — kann sich ändern.
+    private const SOURCE_TIBBER = 3;
+    private const TIBBER_URL    = 'https://tibber.com/de/api/lookup/price-overview?postalCode=';
 
     private const EC_URL      = 'https://api.energy-charts.info/price';
     private const AWATTAR_URL = [
@@ -104,6 +110,8 @@ class NRGSpotPrice extends IPSModule
         $this->RegisterPropertyFloat('MarketBase', 0.0);
         $this->RegisterPropertyFloat('MarketTax', 0.0);
         $this->RegisterPropertyFloat('MarketSurcharge', 0.0);
+        // Nur für die Quelle Tibber; bewusst leer (keine Beispiel-PLZ als Vorgabe).
+        $this->RegisterPropertyString('TibberPostalCode', '');
 
         // Zwischenspeicher bewusst als Attribut: geht er bei einem Modul-Resync
         // verloren, holt der nächste Abruf einfach alles neu.
@@ -150,7 +158,8 @@ class NRGSpotPrice extends IPSModule
         // Quelle oder Gebotszone gewechselt: alte Preise gehören nicht mehr zur
         // Einstellung und dürfen nicht als aktuelle Kurve weitergereicht werden.
         $cache = $this->cache();
-        if (isset($cache['source']) && ((int)$cache['source'] !== $this->source() || (string)$cache['zone'] !== $this->zone())) {
+        $plzKey = $this->source() === self::SOURCE_TIBBER ? $this->postalCode() : '';
+        if (isset($cache['source']) && ((int)$cache['source'] !== $this->source() || (string)$cache['zone'] !== $this->zone() || (string)($cache['plz'] ?? '') !== $plzKey)) {
             $this->WriteAttributeString('PriceCache', '{}');
             $this->WriteAttributeInteger('BlockedUntil', 0);
             $this->WriteAttributeString('LastError', '');
@@ -267,6 +276,7 @@ class NRGSpotPrice extends IPSModule
         foreach (['EntsoeTokenStatus', 'EntsoeTokenInput', 'EntsoeTokenButton', 'EntsoeTokenGuide'] as $name) {
             $this->UpdateFormField($name, 'visible', $Source === self::SOURCE_ENTSOE);
         }
+        $this->UpdateFormField('TibberPostalCode', 'visible', $Source === self::SOURCE_TIBBER);
     }
 
     /** Timer-Einstieg: zu jeder Viertelstunde die Anzeige-Variablen aus dem Zwischenspeicher setzen. */
@@ -349,7 +359,18 @@ class NRGSpotPrice extends IPSModule
         $zone = $this->zone();
         $todayStart = $this->dayStart($now, 0);
         $token = '';
-        if ($source === self::SOURCE_ENTSOE) {
+        $plz = '';
+        if ($source === self::SOURCE_TIBBER) {
+            $sourceName = 'Tibber';
+            $plz = $this->postalCode();
+            if ($zone !== 'DE-LU') {
+                return $this->fail('Die Tibber-Preisübersicht gibt es nur für Deutschland (Gebotszone DE-LU).');
+            }
+            if (!preg_match('/^\d{5}$/', $plz)) {
+                return $this->fail('Für die Tibber-Preisübersicht fehlt eine gültige Postleitzahl (5 Ziffern, Panel „Datenquelle“).');
+            }
+            $url = self::TIBBER_URL . $plz;
+        } elseif ($source === self::SOURCE_ENTSOE) {
             $sourceName = 'ENTSO-E';
             $token = trim((string)$this->ReadAttributeString('EntsoeToken'));
             if ($token === '') {
@@ -391,7 +412,8 @@ class NRGSpotPrice extends IPSModule
             if (!is_array($data)) {
                 return $this->fail($sourceName . ' lieferte keine lesbaren Daten (kein JSON).');
             }
-            $parsed = $source === self::SOURCE_AWATTAR ? $this->parseAwattar($data) : $this->parseEnergyCharts($data);
+            $parsed = $source === self::SOURCE_AWATTAR ? $this->parseAwattar($data)
+                : ($source === self::SOURCE_TIBBER ? $this->parseTibber($data) : $this->parseEnergyCharts($data));
         }
         if ($parsed['error'] !== '') {
             return $this->fail($sourceName . ': ' . $parsed['error']);
@@ -407,6 +429,7 @@ class NRGSpotPrice extends IPSModule
             'fetchedAt' => $now,
             'source'    => $source,
             'zone'      => $zone,
+            'plz'       => $plz,
             'license'   => $parsed['license'],
             'slots'     => $slots,
         ]));
@@ -560,6 +583,69 @@ class NRGSpotPrice extends IPSModule
             for ($t = $s; $t < $e; $t += $step) {
                 $slots[$t] = ['start' => $t, 'end' => $t + $step, 'price' => $price, 'res' => $res];
             }
+        }
+        ksort($slots);
+        return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
+    }
+
+    /**
+     * Tibber-Preisübersicht: energy.todayQuarterHours/tomorrowQuarterHours (ersatzweise …Hours)
+     * mit date/hour/minute (Ortszeit OHNE Zeitzone), priceIncludingVat (EUR/kWh) und
+     * priceComponents[type=power|grid|taxes]. Vertragspreis = „power“ (Börsenpreis); je Slot
+     * zusätzlich 'retail' = Tibber-Endpreis inkl. MwSt in ct/kWh, NUR für die Energie-Manager-
+     * Variable. Sommerzeit: Folgt ein Eintrag zeitlich lückenlos auf den vorigen (vorig + Raster
+     * zeigt dieselbe Wanduhrzeit), gilt dieser Zeitpunkt — so landet die doppelte 02:xx-Stunde
+     * am 25-Stunden-Tag richtig in der Winterzeit; sonst mktime().
+     */
+    private function parseTibber(array $d): array
+    {
+        $e = $d['energy'] ?? null;
+        if (!is_array($e)) {
+            return ['slots' => [], 'license' => '', 'error' => 'unerwartetes Antwortformat (energy fehlt).'];
+        }
+        $slots = [];
+        foreach ([['todayQuarterHours', 'todayHours'], ['tomorrowQuarterHours', 'tomorrowHours']] as [$qKey, $hKey]) {
+            $rows = $e[$qKey] ?? [];
+            $res = 900;
+            if (!is_array($rows) || count($rows) === 0) {
+                $rows = $e[$hKey] ?? [];
+                $res = 3600;
+            }
+            if (!is_array($rows)) {
+                continue;
+            }
+            $last = null;
+            foreach ($rows as $row) {
+                $date = explode('-', (string)($row['date'] ?? ''));
+                if (count($date) !== 3 || !is_numeric($row['hour'] ?? null) || !is_numeric($row['priceIncludingVat'] ?? null)) {
+                    continue;
+                }
+                $power = null;
+                foreach ($row['priceComponents'] ?? [] as $c) {
+                    if (($c['type'] ?? '') === 'power' && is_numeric($c['priceExcludingVat'] ?? null)) {
+                        $power = (float)$c['priceExcludingVat'];
+                    }
+                }
+                if ($power === null) {
+                    continue; // ohne Börsenpreisanteil kein Eintrag — nie den Endpreis als Börsenpreis ausgeben
+                }
+                $h = (int)$row['hour'];
+                $min = (int)($row['minute'] ?? 0);
+                $expected = $last !== null ? $last + $res : null;
+                if ($expected !== null && (int)date('G', $expected) === $h && (int)date('i', $expected) === $min && date('Y-m-d', $expected) === (string)$row['date']) {
+                    $ts = $expected;
+                } else {
+                    $ts = mktime($h, $min, 0, (int)$date[1], (int)$date[2], (int)$date[0]);
+                }
+                $last = $ts;
+                $retail = round((float)$row['priceIncludingVat'] * 100, 4);
+                for ($t = $ts; $t < $ts + $res; $t += 900) {
+                    $slots[$t] = ['start' => $t, 'end' => $t + 900, 'price' => round($power * 100, 4), 'res' => $res, 'retail' => $retail];
+                }
+            }
+        }
+        if (count($slots) === 0) {
+            return ['slots' => [], 'license' => '', 'error' => 'lieferte keine Preise (Postleitzahl bekannt?).'];
         }
         ksort($slots);
         return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
@@ -820,7 +906,7 @@ class NRGSpotPrice extends IPSModule
 
     private function cacheQuelle(array $cache): string
     {
-        return [self::SOURCE_AWATTAR => 'awattar', self::SOURCE_ENTSOE => 'entsoe'][(int)($cache['source'] ?? $this->source())] ?? 'energy-charts';
+        return [self::SOURCE_AWATTAR => 'awattar', self::SOURCE_ENTSOE => 'entsoe', self::SOURCE_TIBBER => 'tibber'][(int)($cache['source'] ?? $this->source())] ?? 'energy-charts';
     }
 
     /**
@@ -846,7 +932,9 @@ class NRGSpotPrice extends IPSModule
             $out[] = [
                 'start' => (int)$s['start'],
                 'end'   => (int)$s['end'],
-                'price' => round($base + (float)$s['price'] * (1 + $tax / 100) * ((100 + $surcharge) / 100), 4),
+                // Quelle Tibber: Tibbers Endpreis inkl. MwSt für die PLZ (wie „Strompreis“), ohne Tarif-Felder.
+                'price' => isset($s['retail']) ? (float)$s['retail']
+                    : round($base + (float)$s['price'] * (1 + $tax / 100) * ((100 + $surcharge) / 100), 4),
             ];
         }
         return json_encode($out);
@@ -894,13 +982,18 @@ class NRGSpotPrice extends IPSModule
     private function source(): int
     {
         $s = (int)$this->ReadPropertyInteger('Source');
-        return in_array($s, [self::SOURCE_AWATTAR, self::SOURCE_ENTSOE], true) ? $s : self::SOURCE_ENERGYCHARTS;
+        return in_array($s, [self::SOURCE_AWATTAR, self::SOURCE_ENTSOE, self::SOURCE_TIBBER], true) ? $s : self::SOURCE_ENERGYCHARTS;
     }
 
     private function zone(): string
     {
         $zone = (string)$this->ReadPropertyString('BiddingZone');
         return isset(self::ZONES[$zone]) ? $zone : 'DE-LU';
+    }
+
+    private function postalCode(): string
+    {
+        return trim((string)$this->ReadPropertyString('TibberPostalCode'));
     }
 
     private function cache(): array
@@ -938,7 +1031,7 @@ class NRGSpotPrice extends IPSModule
 
     private function sourceName(int $source): string
     {
-        return [self::SOURCE_AWATTAR => 'aWATTar', self::SOURCE_ENTSOE => 'EPEX Spot (ENTSO-E)'][$source] ?? 'Energy-Charts';
+        return [self::SOURCE_AWATTAR => 'aWATTar', self::SOURCE_ENTSOE => 'EPEX Spot (ENTSO-E)', self::SOURCE_TIBBER => 'Tibber'][$source] ?? 'Energy-Charts';
     }
 
     private function cacheSummary(): string
@@ -1044,6 +1137,10 @@ class NRGSpotPrice extends IPSModule
 
     private function sourceInfo(): string
     {
+        if ($this->source() === self::SOURCE_TIBBER) {
+            return 'Tibber-Preisübersicht (öffentlich, ohne Tibber-Konto): Für deine Postleitzahl nennt Tibber je Viertelstunde den Börsenpreis, das Netzentgelt und die Abgaben. Alle Werte und der Verbund-Vertrag nutzen den Börsenpreisanteil; die Variable „Marktdaten (Energie Manager)“ bekommt Tibbers Endpreis inkl. Mehrwertsteuer — so wie in Symcons Modul „Strompreis“. '
+                . 'Die Postleitzahl wird dabei an Tibber übertragen. Keine offiziell dokumentierte Schnittstelle, sie kann sich ändern. Der Endpreis gilt für einen Tibber-Standardkunden an dieser Postleitzahl — ob dein Tarif oder zeitvariable Netzentgelte (§ 14a Modul 3) davon abweichen, weiß nur dein Vertrag.';
+        }
         if ($this->source() === self::SOURCE_ENTSOE) {
             return 'EPEX Spot über ENTSO-E: die Day-Ahead-Ergebnisse der Strombörse EPEX Spot, veröffentlicht auf der ENTSO-E Transparency Platform — Viertelstunden, kostenlos, aber mit eigenem Zugangsschlüssel (Konto auf transparency.entsoe.eu anlegen, dann per E-Mail an transparency@entsoe.eu mit Betreff „Restful API access“ beantragen). '
                 . 'Quellennennung: ENTSO-E Transparency Platform. Direkt bei EPEX Spot gibt es die Daten nur mit kostenpflichtigem Vertrag.';
@@ -1083,7 +1180,8 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
             'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
             'items' => [
-                ['type' => 'Label', 'caption' => '• Neue Quelle „EPEX Spot (über ENTSO-E)“: die Börsenergebnisse der EPEX Spot in Viertelstunden, mit kostenlosem ENTSO-E-Zugangsschlüssel (Panel „Datenquelle“).'],
+                ['type' => 'Label', 'caption' => '• Neue Quelle „Tibber-Preisübersicht“: ohne Tibber-Konto, nur mit Postleitzahl. Der Symcon Energie Manager bekommt damit Tibbers Endpreis für deine Postleitzahl, alle anderen Werte bleiben der reine Börsenpreis.'],
+                ['type' => 'Label', 'caption' => '• Seit 0.3: Quelle „EPEX Spot (über ENTSO-E)“: die Börsenergebnisse der EPEX Spot in Viertelstunden, mit kostenlosem ENTSO-E-Zugangsschlüssel (Panel „Datenquelle“).'],
                 ['type' => 'Label', 'caption' => '• Symcon Energie Manager: Die neue Variable „Marktdaten (Energie Manager)“ liefert die Preise im Format von Symcons Modul „Strompreis“ — im Energie Manager unter „Energiepreise“ auswählen. Optional Grundpreis, Steuer und Aufschlag deines Tarifs (Panel „Symcon Energie Manager“).'],
                 ['type' => 'Label', 'caption' => '• Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).'],
                 ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'],
@@ -1106,7 +1204,7 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
                 ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
                 ['type' => 'Label', 'caption' => 'Anzeige: Die Preiskurve für heute und morgen mit den negativen Viertelstunden zeigt das NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis"). Die Variablen lassen sich zusätzlich per Verknüpfung im Objektbaum in den Bereich des WebFronts legen.'],
-                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“. Grundpreis, Steuer und Aufschlag wirken nur auf diese Variable.'],
+                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“. Grundpreis, Steuer und Aufschlag wirken nur auf diese Variable; bei der Quelle Tibber steht dort stattdessen Tibbers Endpreis inkl. Mehrwertsteuer für die Postleitzahl.'],
                 ['type' => 'Label', 'caption' => 'Skripte und andere Module: SPOT_GetPriceCurve(<InstanzID>) liefert eine Liste aller Viertelstunden von heute und (sobald veröffentlicht) morgen — je Eintrag start, end (exklusiv, Unixzeit), price (ct/kWh), basis „spot", netzentgelt „fehlt", level (immer leer), quelle, aufloesung (900 = Viertelstunde, 3600 = aus Stundenwert verteilt) und contractVersion. Lücken sind möglich, fehlende Werte stehen nie als 0 drin.'],
                 ['type' => 'Label', 'caption' => 'SPOT_GetPriceHistory(<InstanzID>, von, bis) liefert dieselben Einträge für einen beliebigen Zeitraum (Unixzeit, bis exklusiv, höchstens 400 Tage). Vergangene Viertelstunden stammen aus dem Archiv (quelle „archiv", Stufenverlauf: ein Wert gilt bis zum nächsten, höchstens 12 Stunden — längere Lücken, z. B. während Symcon aus war, bleiben leer); vor dem ersten Archiveintrag gibt es keine Einträge.'],
                 ['type' => 'Label', 'caption' => 'SPOT_Update(<InstanzID>) ruft sofort ab und liefert das Ergebnis als Text. Zeitumstellung: Tage mit 23 bzw. 25 Stunden haben 92 bzw. 100 Viertelstunden — alle Zeitstempel sind echte Unixzeit, nichts wird aus festen Tageslängen errechnet.'],
@@ -1118,6 +1216,7 @@ class NRGSpotPrice extends IPSModule
     private function SourcePanel(): array
     {
         $entsoe = $this->source() === self::SOURCE_ENTSOE;
+        $tibber = $this->source() === self::SOURCE_TIBBER;
         $zones = [];
         foreach (self::ZONES as $value => $caption) {
             $zones[] = ['caption' => $caption, 'value' => $value];
@@ -1129,8 +1228,10 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => '560px', 'onChange' => 'SPOT_UIChangeSource($id, $Source);', 'options' => [
                     ['caption' => 'Energy-Charts (Fraunhofer ISE) — Viertelstunden, ohne Anmeldung (empfohlen)', 'value' => self::SOURCE_ENERGYCHARTS],
                     ['caption' => 'EPEX Spot (über ENTSO-E) — Viertelstunden, Zugangsschlüssel nötig', 'value' => self::SOURCE_ENTSOE],
+                    ['caption' => 'Tibber-Preisübersicht — Viertelstunden, ohne Konto, per Postleitzahl', 'value' => self::SOURCE_TIBBER],
                     ['caption' => 'aWATTar — nur Stundenwerte', 'value' => self::SOURCE_AWATTAR],
                 ]],
+                ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => 'Postleitzahl (für Netzentgelt und Abgaben, wird an Tibber übertragen)', 'validate' => '^[0-9]{5}$', 'width' => '560px'],
                 ['type' => 'Label', 'name' => 'EntsoeTokenStatus', 'visible' => $entsoe, 'caption' => $this->entsoeTokenStatus()],
                 ['type' => 'RowLayout', 'items' => [
                     ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => '420px'],
@@ -1144,6 +1245,7 @@ class NRGSpotPrice extends IPSModule
                         ['type' => 'Label', 'caption' => 'Gebotszone: die Zone deines Netzanschlusses — Deutschland und Luxemburg bilden gemeinsam „DE-LU", Österreich ist „AT". Der Preis ist in der ganzen Zone gleich.'],
                         ['type' => 'Label', 'caption' => 'Energy-Charts (empfohlen): Viertelstundenwerte direkt aus der Day-Ahead-Auktion, frei nutzbar mit Quellennennung. Genau das braucht man für Regeln, die je Viertelstunde gelten, z. B. die Vergütungsregel bei negativen Preisen.'],
                         ['type' => 'Label', 'caption' => 'EPEX Spot (über ENTSO-E): dieselben Börsenergebnisse der EPEX Spot, direkt von der europäischen Transparenzplattform der Netzbetreiber, ebenfalls in Viertelstunden. Braucht einen kostenlosen, persönlichen Zugangsschlüssel — sinnvoll als unabhängige zweite Quelle oder wenn du ohnehin ein ENTSO-E-Konto hast.'],
+                        ['type' => 'Label', 'caption' => 'Tibber-Preisübersicht: ohne Konto, nur mit deiner Postleitzahl. Liefert denselben Börsenpreis und zusätzlich Tibbers Endpreis für diese Postleitzahl — den nutzt die Variable für den Symcon Energie Manager, damit er nach dem echten Tibber-Preis planen kann, auch ohne das Modul Tibber Grid Rewards.'],
                         ['type' => 'Label', 'caption' => 'aWATTar: Ersatzquelle, falls Energy-Charts einmal nicht erreichbar ist. Liefert nur Stundenwerte; eine einzelne negative Viertelstunde kann darin untergehen.'],
                         ['type' => 'Label', 'caption' => 'Nach einem Wechsel verwirft das Modul die alten Preise und holt beim Übernehmen sofort neu.'],
                     ],
@@ -1190,6 +1292,7 @@ class NRGSpotPrice extends IPSModule
             'items' => [
                 ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach diesen Preisen.'],
                 ['type' => 'Label', 'caption' => 'Standard (alle Felder 0): reiner Börsenpreis, netto. Hast du einen dynamischen Tarif, der sich nach dem Börsenpreis richtet, kannst du ihn hier nachbilden — gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag). Das wirkt nur auf diese Variable, alle anderen Werte bleiben der reine Börsenpreis.'],
+                ['type' => 'Label', 'visible' => $this->source() === self::SOURCE_TIBBER, 'caption' => 'ℹ️ Quelle Tibber: Die Variable enthält Tibbers Endpreis inkl. Mehrwertsteuer für deine Postleitzahl — die drei Felder darunter werden dann nicht verwendet.'],
                 ['type' => 'NumberSpinner', 'name' => 'MarketBase', 'caption' => 'Grundpreis je kWh (z. B. Netzentgelt, Abgaben)', 'suffix' => ' ct/kWh', 'digits' => 2, 'minimum' => 0, 'maximum' => 100],
                 ['type' => 'NumberSpinner', 'name' => 'MarketTax', 'caption' => 'Steuer auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 50],
                 ['type' => 'NumberSpinner', 'name' => 'MarketSurcharge', 'caption' => 'Aufschlag des Anbieters auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 100],

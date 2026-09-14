@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.3.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.4.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml)
@@ -33,6 +33,7 @@ nur die Preise.
 |---|---|---|---|
 | **Energy-Charts** (Fraunhofer ISE), Standard | Viertelstunde | keine | Lizenz CC BY 4.0, Daten Bundesnetzagentur \| SMARD.de. Begrenzt die Abfragen pro Minute — das Modul fragt meist nur 1–5-mal am Tag und hält sich an jede Pause (HTTP 429 + `Retry-After`). |
 | **EPEX Spot (über ENTSO-E)** | Viertelstunde | kostenloser Zugangsschlüssel | Die Day-Ahead-Ergebnisse der Strombörse EPEX Spot, veröffentlicht auf der ENTSO-E Transparency Platform (so bindet auch Symcons Modul „Strompreis“ „EPEX Spot“ an). Schlüssel: Konto auf transparency.entsoe.eu, dann per E-Mail „Restful API access“ beantragen ([Anleitung](https://transparencyplatform.zendesk.com/hc/en-us/articles/12845911031188-How-to-get-security-token)). Direkt bei EPEX Spot gibt es die Daten nur mit kostenpflichtigem Vertrag. |
+| **Tibber-Preisübersicht** | Viertelstunde | keine, nur Postleitzahl | Tibbers öffentliche Preisübersicht (wie in Symcons Modul „Strompreis“). Börsenpreisanteil für alle Werte; zusätzlich Tibbers Endpreis inkl. MwSt für die Postleitzahl — den bekommt die Variable für den Symcon Energie Manager. Nur Deutschland. Keine offiziell dokumentierte Schnittstelle; die Postleitzahl wird an Tibber übertragen. |
 | **aWATTar** | Stunde | keine | Kostenlos im Rahmen fairer Nutzung. Stundenwerte werden auf vier gleiche Viertelstunden verteilt; eine einzelne negative Viertelstunde kann im Stundenmittel verschwinden. |
 
 Der ENTSO-E-Zugangsschlüssel wird als Attribut gespeichert — nie im Formular, im Log oder in
@@ -50,6 +51,8 @@ Standard ist der reine Börsenpreis. Wer einen dynamischen Tarif hat, der sich a
 orientiert, trägt im Panel „Symcon Energie Manager“ Grundpreis, Steuer und Aufschlag ein —
 gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag).
 Das wirkt nur auf diese Variable; Vertrag und übrige Variablen bleiben der reine Börsenpreis.
+Mit der Quelle **Tibber-Preisübersicht** enthält die Variable stattdessen Tibbers Endpreis inkl.
+Mehrwertsteuer für die eingetragene Postleitzahl — der Tibber-Preis ohne Tibber-Zugang.
 
 ## So arbeitet das Modul
 
@@ -81,7 +84,7 @@ $curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
 // [[ 'start' => int (Unix, inkl.), 'end' => int (Unix, EXKLUSIV),
 //    'price' => float ct/kWh NETTO (reiner Börsenpreis, negativ möglich),
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
-//    'quelle' => 'energy-charts'|'entsoe'|'awattar',
+//    'quelle' => 'energy-charts'|'entsoe'|'tibber'|'awattar',
 //    'aufloesung' => 900|3600,          // Sekunden je Originalwert
 //    'contractVersion' => '1.0' ], …]
 ```

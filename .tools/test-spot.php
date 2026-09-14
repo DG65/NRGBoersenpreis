@@ -466,8 +466,8 @@ foreach (token_get_all($code) as $t) { $codeOnly .= (is_array($t) && in_array($t
 check('Keine feste Tageslänge (86400) im Code (Kommentare ausgenommen)', !str_contains($codeOnly, '86400'));
 check('Kein ColorValue/ColorActive (Mobile-App-Absturz)', !preg_match('/ColorValue|ColorActive/', $code));
 check('Kein @ vor IPS_Set*/SetValue (stille Fehlschläge)', !preg_match('/@(IPS_Set|SetValue)/', $code));
-// Y-m-d kommt nur in der Energy-Charts-URL vor (Maschinenformat der Quelle), nie in Texten.
-check('Sichtbare Datumsangaben immer mit Jahr (TT.MM.JJJJ, Store-Checkliste 9b)', !preg_match("/date\\('d\\.m\\.[ ']/", $codeOnly) && substr_count($codeOnly, "date('Y-m-d'") === 2);
+// Y-m-d nur als Maschinenformat: 2× Energy-Charts-URL, 1× Datumsvergleich in parseTibber() — nie in Texten.
+check('Sichtbare Datumsangaben immer mit Jahr (TT.MM.JJJJ, Store-Checkliste 9b)', !preg_match("/date\\('d\\.m\\.[ ']/", $codeOnly) && substr_count($codeOnly, "date('Y-m-d'") === 3);
 check('library.json: nur die 8 erlaubten Felder, Name „NRG-Stack Börsenpreis"', ($lj = json_decode(file_get_contents(dirname(__DIR__) . '/library.json'), true)) && array_keys($lj) === ['id', 'author', 'name', 'url', 'compatibility', 'version', 'build', 'date'] && $lj['name'] === 'NRG-Stack Börsenpreis' && $lj['compatibility'] === ['version' => '9.0']);
 $mj = json_decode(file_get_contents(dirname(__DIR__) . '/NRGSpotPrice/module.json'), true);
 check('module.json: Klasse = name, Präfix SPOT, GUIDs passen zur Klasse', $mj['name'] === 'NRGSpotPrice' && $mj['prefix'] === 'SPOT' && $mj['library'] === $lj['id'] && str_contains($code, $mj['id']) && str_contains($code, $lj['id']));
@@ -583,6 +583,9 @@ $m->UIChangeSource(0);
 $vis = array_values(array_filter($m->fieldUpdates, fn($x) => $x[0] === 'EntsoeTokenButton' && $x[1] === 'visible'));
 check('… andere Quelle blendet sie aus', end($vis)[2] === false);
 check('Leerer Schlüssel löscht', str_starts_with($m->SetEntsoeToken(''), '🗑') && $m->attrs['EntsoeToken'] === '');
+$m->UIChangeSource(3);
+$vis = array_values(array_filter($m->fieldUpdates, fn($x) => $x[0] === 'TibberPostalCode' && $x[1] === 'visible'));
+check('Quellenwahl Tibber blendet das Postleitzahl-Feld ein', end($vis)[2] === true);
 
 heading('16. Symcon Energie Manager — Variable „Marktdaten (Energie Manager)“');
 clock('2026-09-12 10:00:00');
@@ -607,6 +610,61 @@ $GLOBALS['HTTP'][] = resp(0, '', [], 'DNS');
 $m2->ApplyChanges();
 check('Ohne Preise: leere Liste „[]“ (nichts erfunden)', v($m2, 'MarketData') === '[]');
 check('Formular: Panel nennt die Variable mit ID und das Feld „Energiepreise“', str_contains(formText(form($m)), 'Marktdaten (Energie Manager)“ (ID ') && str_contains(formText(form($m)), 'Energiepreise'));
+
+heading('17. Tibber-Preisübersicht (ohne Konto, per Postleitzahl)');
+/** Tibber-Preisübersicht aus einer Energy-Charts-Reihe nachbilden: Ortszeit ohne Zeitzone, Endpreis = Börsenpreis × 1,19 + 20 ct. */
+function tibberJson(array $ecd): string
+{
+    $rows = [];
+    foreach ($ecd['unix_seconds'] as $i => $t) {
+        $p = $ecd['price'][$i] / 1000; // EUR/MWh → EUR/kWh
+        $rows[] = ['priceExcludingVat' => $p + 0.17, 'priceIncludingVat' => round($p * 1.19 + 0.2, 4), 'hour' => (int)date('G', $t), 'minute' => (int)date('i', $t), 'date' => date('Y-m-d', $t),
+            'priceComponents' => [['type' => 'power', 'priceExcludingVat' => $p], ['type' => 'taxes', 'priceExcludingVat' => 0.09], ['type' => 'grid', 'priceExcludingVat' => 0.08]]];
+    }
+    return json_encode(['priceArea' => 'DE', 'currency' => 'EUR', 'energy' => ['todayQuarterHours' => $rows, 'tomorrowQuarterHours' => [], 'todayHours' => [], 'tomorrowHours' => []]]);
+}
+clock('2026-09-14 18:30:00');
+$m = fresh(3);
+$n = count($GLOBALS['REQUESTS']);
+$m->ApplyChanges();
+check('Ohne Postleitzahl: keine Anfrage, klarer Hinweis', count(requestsSince($n)) === 0 && str_contains($m->attrs['LastError'], 'Postleitzahl'), $m->attrs['LastError']);
+$m->props['TibberPostalCode'] = '10115';
+$GLOBALS['HTTP'][] = ok(fx('tibber-10115-2026-09-14_15.json'));
+$m->ApplyChanges();
+check('URL: Tibber-Preisübersicht mit Postleitzahl', end($GLOBALS['REQUESTS']) === 'https://tibber.com/de/api/lookup/price-overview?postalCode=10115', end($GLOBALS['REQUESTS']));
+$c = $m->GetPriceCurve();
+$ecT = json_decode(fx('ec-DE-LU-2026-09-14_15.json'), true);
+$mapT = array_combine($ecT['unix_seconds'], $ecT['price']);
+$maxDiff = 0.0;
+foreach ($c as $s) { $maxDiff = max($maxDiff, abs($s['price'] - ($mapT[$s['start']] ?? 1e9) / 10)); }
+check('Echte Antwort: 192 Viertelstunden, Börsenpreisanteil = Energy-Charts (≤ 0,005 ct Rundung), quelle tibber', count($c) === 192 && $maxDiff <= 0.0051 && $c[0]['quelle'] === 'tibber' && $c[0]['aufloesung'] === 900 && contiguous($c), count($c) . ' / ' . $maxDiff);
+$tq = json_decode(fx('tibber-10115-2026-09-14_15.json'), true)['energy']['todayQuarterHours'];
+$md = json_decode(v($m, 'MarketData'), true);
+check('Energie Manager bekommt Tibbers Endpreis inkl. MwSt (wie „Strompreis“), ab 18:30', $md[0]['start'] === ts('2026-09-14 18:30:00') && abs($md[0]['price'] - $tq[74]['priceIncludingVat'] * 100) < 1e-6, json_encode($md[0]));
+check('Vertrag und „Börsenpreis jetzt“ bleiben der Börsenpreis (nicht der Endpreis)', abs(v($m, 'CurrentPrice') - ($mapT[ts('2026-09-14 18:30:00')] / 10)) <= 0.0051 && $c[74]['price'] < $md[0]['price']);
+$m->props['MarketBase'] = 20.0;
+$m->ApplyChanges();
+check('Tarif-Felder werden bei Tibber nicht angewendet', abs(json_decode(v($m, 'MarketData'), true)[0]['price'] - $tq[74]['priceIncludingVat'] * 100) < 1e-6);
+check('Formular: Hinweis im Energie-Manager-Panel und Übertragung der PLZ genannt', str_contains(formText(form($m)), 'die drei Felder darunter werden dann nicht verwendet') && str_contains(formText(form($m)), 'wird an Tibber übertragen'));
+$m->props['TibberPostalCode'] = '80331';
+$GLOBALS['HTTP'][] = ok(fx('tibber-10115-2026-09-14_15.json'));
+$m->ApplyChanges();
+check('Andere Postleitzahl: alte Preise verworfen, neu abgefragt', end($GLOBALS['REQUESTS']) === 'https://tibber.com/de/api/lookup/price-overview?postalCode=80331' && json_decode($m->attrs['PriceCache'], true)['plz'] === '80331');
+$m->props['BiddingZone'] = 'AT';
+$m->ApplyChanges();
+check('Gebotszone AT: klarer Hinweis „nur für Deutschland“', str_contains($m->attrs['LastError'], 'nur für Deutschland'));
+foreach ([['2025-10-26', 'ec-DE-LU-2025-10-26.json', 100], ['2026-03-29', 'ec-DE-LU-2026-03-29.json', 92]] as [$day, $file, $want]) {
+    clock($day . ' 09:00:00');
+    $mt = fresh(3);
+    $mt->props['TibberPostalCode'] = '10115';
+    $ecd = json_decode(fx($file), true);
+    $GLOBALS['HTTP'][] = ok(tibberJson($ecd));
+    $mt->ApplyChanges();
+    $ct = $mt->GetPriceCurve();
+    $same = count($ct) === $want;
+    foreach ($ct as $i => $s) { if ($s['start'] !== $ecd['unix_seconds'][$i] || abs($s['price'] - $ecd['price'][$i] / 10) > 1e-9) { $same = false; } }
+    check("Sommerzeit $day: $want Viertelstunden, jede zur richtigen Unixzeit (Ortszeit ohne Zeitzone richtig zugeordnet)", $same && contiguous($ct), count($ct) . ' Einträge');
+}
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

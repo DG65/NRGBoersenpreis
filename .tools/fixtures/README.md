@@ -13,6 +13,8 @@ damit `test-spot.php` ohne Netz und reproduzierbar gegen reale Daten prüft
 | `ec-AT-2026-09-12.json` | Energy-Charts `/price?bzn=AT&start=2026-09-12&end=2026-09-12` |
 | `aw-DE-2026-05-01.json` | aWATTar `api.awattar.de/v1/marketdata`, 01.05.2026 (24 Stundenwerte) |
 | `aw-DE-2026-03-29.json` | dto. 29.03.2026 (23 Stundenwerte) |
+| `ec-DE-LU-2026-09-14_15.json` | Energy-Charts 14.–15.09.2026 (Vergleich zur Tibber-Datei) |
+| `tibber-10115-2026-09-14_15.json` | Tibber-Preisübersicht `tibber.com/de/api/lookup/price-overview?postalCode=10115`, abgerufen 14.09.2026 — **gekürzt** auf `energy.today/tomorrow(Quarter)Hours` (Vergleichskosten anderer Anbieter und Monatswerte entfernt) |
 
 Quellennennung Energy-Charts: Energy-Charts.info (Fraunhofer ISE), Daten
 Bundesnetzagentur | SMARD.de, Lizenz CC BY 4.0 (steht auch in jeder Datei unter
