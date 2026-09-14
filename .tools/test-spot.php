@@ -81,6 +81,8 @@ class IPSModule
     public function RegisterPropertyInteger(string $n, int $d): void { if (!array_key_exists($n, $this->props)) { $this->props[$n] = $d; } }
     public function ReadPropertyString(string $n): string { return $this->props[$n]; }
     public function ReadPropertyInteger(string $n): int { return $this->props[$n]; }
+    public function RegisterPropertyFloat(string $n, float $d): void { if (!array_key_exists($n, $this->props)) { $this->props[$n] = $d; } }
+    public function ReadPropertyFloat(string $n): float { return $this->props[$n]; }
     public function RegisterAttributeString(string $n, string $d): void { if (!array_key_exists($n, $this->attrs)) { $this->attrs[$n] = $d; } }
     public function RegisterAttributeInteger(string $n, int $d): void { if (!array_key_exists($n, $this->attrs)) { $this->attrs[$n] = $d; } }
     public function RegisterAttributeBoolean(string $n, bool $d): void { if (!array_key_exists($n, $this->attrs)) { $this->attrs[$n] = $d; } }
@@ -169,6 +171,35 @@ function emsSlots(array $curve, string $ymd): array
         if ($slot >= 0 && $slot < 96) { $p[$slot] = (float)$e['price'] / 100.0; }
     }
     return $p;
+}
+/**
+ * ENTSO-E-A44-Antwort (Publication_MarketDocument) aus einer Preisreihe in EUR/MWh — Kurventyp
+ * A03: gleiche Folgewerte werden weggelassen, auch am Periodenende. $decoy = zusätzliche
+ * TimeSeries mit Position 2 (steht absichtlich zuerst im Dokument und darf nicht gewinnen).
+ */
+function entsoeXml(int $start, array $prices, int $res, array $decoy = []): string
+{
+    $series = function (int $pos, array $p) use ($start, $res) {
+        $pts = ''; $prev = null;
+        foreach (array_values($p) as $i => $v) {
+            if ($v === $prev) { continue; }
+            $pts .= '<Point><position>' . ($i + 1) . '</position><price.amount>' . $v . '</price.amount></Point>';
+            $prev = $v;
+        }
+        return '<TimeSeries><mRID>' . $pos . '</mRID><auction.type>A01</auction.type><businessType>A62</businessType>'
+            . '<currency_Unit.name>EUR</currency_Unit.name><price_Measure_Unit.name>MWH</price_Measure_Unit.name>'
+            . '<classificationSequence_AttributeInstanceComponent.position>' . $pos . '</classificationSequence_AttributeInstanceComponent.position>'
+            . '<curveType>A03</curveType><Period><timeInterval><start>' . gmdate('Y-m-d\TH:i\Z', $start) . '</start><end>'
+            . gmdate('Y-m-d\TH:i\Z', $start + count($p) * $res) . '</end></timeInterval><resolution>' . ($res === 900 ? 'PT15M' : 'PT60M')
+            . '</resolution>' . $pts . '</Period></TimeSeries>';
+    };
+    return '<?xml version="1.0" encoding="utf-8"?><Publication_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3">'
+        . '<type>A44</type>' . ($decoy ? $series(2, $decoy) : '') . $series(1, $prices) . '</Publication_MarketDocument>';
+}
+function ackXml(): string
+{
+    return '<?xml version="1.0" encoding="utf-8"?><Acknowledgement_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:7:0">'
+        . '<mRID>x</mRID><Reason><code>999</code><text>No matching data found for Data item Day-ahead Prices [12.1.D] (10Y1001A1001A82H, 10Y1001A1001A82H) and interval 2026-09-12T22:00:00.000Z/2026-09-13T22:00:00.000Z.</text></Reason></Acknowledgement_MarketDocument>';
 }
 function contiguous(array $curve): bool { for ($i = 1; $i < count($curve); $i++) { if ($curve[$i]['start'] !== $curve[$i - 1]['end']) { return false; } } return true; }
 
@@ -393,7 +424,7 @@ $m->ApplyChanges();
 $f = form($m);
 $caps = array_map(fn($e) => $e['caption'] ?? '', $f['elements']);
 check('Reihenfolge: Zweck → Neu → Doku → Datenquelle → Börsenpreise → Rückmeldungen → Über', ($f['elements'][0]['name'] ?? '') === 'PurposeIntroPanel' && ($f['elements'][1]['name'] ?? '') === 'NewsPanel'
-    && str_contains($caps[2], 'Dokumentation') && str_contains($caps[3], 'Datenquelle') && str_contains($caps[4], 'Börsenpreise') && ($f['elements'][5]['name'] ?? '') === 'ForumHintPanel' && str_contains($caps[6], 'Über dieses Modul'), implode(' | ', $caps));
+    && str_contains($caps[2], 'Dokumentation') && str_contains($caps[3], 'Datenquelle') && str_contains($caps[4], 'Börsenpreise') && str_contains($caps[5], 'Energie Manager') && ($f['elements'][6]['name'] ?? '') === 'ForumHintPanel' && str_contains($caps[7], 'Über dieses Modul'), implode(' | ', $caps));
 check('Status-Codes 102/201 beschriftet (kein Warnstatus > 200 für harmlose Abruffehler)', array_column($f['status'], 'code') === [102, 201]);
 $txt = formText($f);
 check('Kopfzeile ✅ mit Zeitpunkt TT.MM.JJJJ, Übersicht mit Heute/Morgen', str_contains($txt, '✅ Zuletzt abgerufen 12.09.2026 13:10:00 Uhr') && str_contains($txt, 'Heute: 96 Viertelstunden') && str_contains($txt, 'Morgen: 96 Viertelstunden'));
@@ -403,9 +434,9 @@ check('Kein Link-Button trägt die URL direkt in "link"', !preg_match('/"link":"
 $popups = [];
 array_walk_recursive($f, function () {});
 foreach ($f['elements'] as $el) { foreach ($el['items'] ?? [] as $it) { if (($it['type'] ?? '') === 'PopupButton') { $popups[] = $it; } } }
-check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 3 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 3);
+check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 4 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 4);
 // Live-Fund 13.09.2026: 63 Zeichen liefen bei 460 px über den Knopfrand (Großbuchstaben-Skin).
-check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 3, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
+check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 4, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
 check('Knopf „Preise jetzt abrufen" gibt Rückmeldung per echo', str_contains($txt, 'echo SPOT_Update($id);'));
 $m->AckPurposeIntro(); $m->AckNews(); $m->AckForumHint();
 $f2 = form($m);
@@ -415,7 +446,7 @@ check('aWATTar gewählt: Hinweis auf Stundenwerte und faire Nutzung', str_contai
 
 heading('13. Vertrags- und Code-Hygiene (SUITE.md Stolperstein 8/9/13/18/20)');
 $rc = new ReflectionClass(NRGSpotPrice::class);
-foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'AckPurposeIntro', 'AckNews', 'AckForumHint'] as $name) {
+foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'SetEntsoeToken', 'UIChangeSource', 'AckPurposeIntro', 'AckNews', 'AckForumHint'] as $name) {
     $rm = $rc->getMethod($name);
     $okTypes = true; $okDefaults = true;
     foreach ($rm->getParameters() as $p) {
@@ -494,6 +525,88 @@ $m2 = fresh();
 $GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
 $m2->ApplyChanges();
 check('Ohne Archiv-Instanz beim Anlegen: Merker bleibt offen (später erneut versuchen)', $m2->attrs['ArchiveInitDone'] === false);
+
+heading('15. EPEX Spot über ENTSO-E');
+$GLOBALS['ARCHIVES'] = [];
+clock('2026-09-12 10:00:00');
+$m = fresh(2);
+$n = count($GLOBALS['REQUESTS']);
+$m->ApplyChanges();
+check('Ohne Zugangsschlüssel: keine Anfrage, klarer Hinweis, Status 201', count(requestsSince($n)) === 0 && str_contains($m->attrs['LastError'], 'kein Zugangsschlüssel') && $m->status === 201, $m->attrs['LastError']);
+$p = array_slice($ec['price'], 0, 96);
+$p[93] = $p[94] = $p[95] = $p[92]; // Periodenende mit gleichen Werten — A03 lässt sie weg
+$GLOBALS['HTTP'][] = ok(entsoeXml(ts('2026-09-12 00:00:00'), $p, 900, array_fill(0, 96, 999.0)));
+$secret = 'abc-123-SECRET';
+$r = $m->SetEntsoeToken($secret);
+$u = end($GLOBALS['REQUESTS']);
+check('Schlüssel ins Attribut, Eingabefeld geleert, sofort abgerufen', $m->attrs['EntsoeToken'] === $secret && in_array(['EntsoeTokenInput', 'value', ''], $m->fieldUpdates, true) && str_starts_with($r, '✅'), $r);
+check('URL: ENTSO-E A44, UTC heute 00:00 bis übermorgen 00:00 Ortszeit, EIC DE-LU', $u === 'https://web-api.tp.entsoe.eu/api?securityToken=' . $secret . '&documentType=A44&periodStart=202609112200&periodEnd=202609132200&out_Domain=10Y1001A1001A82H&in_Domain=10Y1001A1001A82H', $u);
+$c = $m->GetPriceCurve();
+$exact = count($c) === 96;
+foreach ($c as $i => $s) { if (abs($s['price'] - $p[$i] / 10) > 1e-9) { $exact = false; } }
+check('96 Viertelstunden exakt (A03-Lücken inkl. Periodenende gefüllt, Nebenreihe Position 2 ignoriert)', $exact);
+check('quelle=entsoe, aufloesung=900, lückenlos', $c[0]['quelle'] === 'entsoe' && $c[0]['aufloesung'] === 900 && contiguous($c));
+check('Formular zeigt nur die letzten 4 Zeichen des Schlüssels, nie den Schlüssel', str_contains($m->call('entsoeTokenStatus'), '…CRET') && !str_contains(formText(form($m)), $secret));
+$aw = json_decode(fx('aw-DE-2026-05-01.json'), true);
+clock('2026-05-01 09:00:00');
+$m2 = fresh(2);
+$m2->attrs['EntsoeToken'] = $secret;
+$GLOBALS['HTTP'][] = ok(entsoeXml(ts('2026-05-01 00:00:00'), array_map(fn($x) => (float)$x['marketprice'], $aw['data']), 3600));
+$m2->ApplyChanges();
+$c2 = $m2->GetPriceCurve();
+check('PT60M: 24 Stunden → 96 Viertelstunden, aufloesung 3600', count($c2) === 96 && $c2[0]['aufloesung'] === 3600 && $c2[0]['price'] === $c2[3]['price'] && contiguous($c2), (string)count($c2));
+$ds = json_decode(fx('ec-DE-LU-2026-03-29.json'), true);
+clock('2026-03-29 09:00:00');
+$m3 = fresh(2);
+$m3->attrs['EntsoeToken'] = $secret;
+$GLOBALS['HTTP'][] = ok(entsoeXml(ts('2026-03-29 00:00:00'), $ds['price'], 900));
+$m3->ApplyChanges();
+$c3 = $m3->GetPriceCurve();
+check('29.03.2026 (23-Stunden-Tag): 92 Viertelstunden bis 24:00', count($c3) === 92 && contiguous($c3) && end($c3)['end'] === ts('2026-03-30 00:00:00'));
+clock('2026-09-12 13:00:00');
+$GLOBALS['HTTP'][] = resp(400, ackXml());
+$r = $m->Update();
+check('Keine Daten (HTTP 400 + Quittung „No matching data“): „noch keine Daten“, Speicher bleibt', str_contains($r, 'noch keine Daten') && count($m->GetPriceCurve()) === 96, $r);
+$GLOBALS['HTTP'][] = resp(401, 'Unauthorized');
+check('HTTP 401: „lehnt den Zugangsschlüssel ab“', str_contains($m->Update(), 'lehnt den Zugangsschlüssel ab'));
+$GLOBALS['LOG'] = [];
+$GLOBALS['HTTP'][] = resp(0, '', [], 'file_get_contents(https://web-api.tp.entsoe.eu/api?securityToken=' . $secret . '&documentType=A44): Failed to open stream');
+$r = $m->Update();
+check('Schlüssel steht nie in Rückmeldung, Fehler, Log oder Formular (***)', str_contains($r, '***') && !str_contains($r, $secret) && !str_contains($m->attrs['LastError'], $secret)
+    && !str_contains(implode(' ', $GLOBALS['LOG']), $secret) && !str_contains(formText(form($m)), $secret), $r);
+$GLOBALS['HTTP'][] = ok('<html>kein XML');
+check('Kein XML: „keine lesbaren Daten“', str_contains($m->Update(), 'keine lesbaren Daten'));
+$m->UIChangeSource(2);
+$vis = array_values(array_filter($m->fieldUpdates, fn($x) => $x[0] === 'EntsoeTokenButton' && $x[1] === 'visible'));
+check('Quellenwahl ENTSO-E blendet die Schlüsselfelder ein', end($vis)[2] === true);
+$m->UIChangeSource(0);
+$vis = array_values(array_filter($m->fieldUpdates, fn($x) => $x[0] === 'EntsoeTokenButton' && $x[1] === 'visible'));
+check('… andere Quelle blendet sie aus', end($vis)[2] === false);
+check('Leerer Schlüssel löscht', str_starts_with($m->SetEntsoeToken(''), '🗑') && $m->attrs['EntsoeToken'] === '');
+
+heading('16. Symcon Energie Manager — Variable „Marktdaten (Energie Manager)“');
+clock('2026-09-12 10:00:00');
+$m = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$m->ApplyChanges();
+$md = json_decode(v($m, 'MarketData'), true);
+check('Format wie Symcons „Strompreis“: Liste aus {start, end, price}', is_array($md) && array_keys($md[0] ?? []) === ['start', 'end', 'price'] && is_int($md[0]['start']) && is_float($md[0]['price']));
+check('Ab der laufenden Viertelstunde, höchstens 24 Stunden (96 Einträge)', $md[0]['start'] === ts('2026-09-12 10:00:00') && count($md) === 96 && end($md)['end'] === ts('2026-09-13 10:00:00'));
+check('Standard (alles 0): reiner Börsenpreis in ct/kWh', abs($md[0]['price'] - $ec['price'][40] / 10) < 1e-9);
+$m->props['MarketBase'] = 20.0; $m->props['MarketTax'] = 19.0; $m->props['MarketSurcharge'] = 3.0;
+$m->ApplyChanges();
+$md = json_decode(v($m, 'MarketData'), true);
+check('Mit Tarif: Grundpreis + Börsenpreis × 1,19 × 1,03 (Rechnung wie „Strompreis“)', abs($md[0]['price'] - round(20 + $ec['price'][40] / 10 * 1.19 * 1.03, 4)) < 1e-9);
+check('Tarif-Felder wirken NICHT auf Vertrag und „Börsenpreis jetzt“', abs($m->GetPriceCurve()[40]['price'] - $ec['price'][40] / 10) < 1e-9 && abs(v($m, 'CurrentPrice') - $ec['price'][40] / 10) < 1e-9);
+clock('2026-09-12 10:15:02');
+$m->Tick();
+$md = json_decode(v($m, 'MarketData'), true);
+check('Nach der Viertelstunde fällt der vergangene Eintrag heraus', $md[0]['start'] === ts('2026-09-12 10:15:00') && count($md) === 96);
+$m2 = fresh();
+$GLOBALS['HTTP'][] = resp(0, '', [], 'DNS');
+$m2->ApplyChanges();
+check('Ohne Preise: leere Liste „[]“ (nichts erfunden)', v($m2, 'MarketData') === '[]');
+check('Formular: Panel nennt die Variable mit ID und das Feld „Energiepreise“', str_contains(formText(form($m)), 'Marktdaten (Energie Manager)“ (ID ') && str_contains(formText(form($m)), 'Energiepreise'));
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

@@ -3,6 +3,24 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.3.0] - 2026-09-14
+
+### Added
+- **Quelle „EPEX Spot (über ENTSO-E)“** — die Day-Ahead-Ergebnisse der Strombörse EPEX Spot,
+  veröffentlicht auf der ENTSO-E Transparency Platform, in Viertelstunden (so bindet auch Symcons
+  Modul „Strompreis“ „EPEX Spot“ an; direkt bei EPEX gibt es die Daten nur mit Vertrag).
+  Kostenloser, persönlicher Zugangsschlüssel nötig: wird im Attribut gespeichert (nie Property,
+  nie im Formular, Log oder in Fehlermeldungen), Eingabe per Passwortfeld + „Schlüssel speichern“
+  (`SPOT_SetEntsoeToken()`). Auswertung des A44-XML: mehrere Zeitreihen je Tag (kleinste Position
+  gilt), Kurventyp A03 (weggelassene gleiche Werte werden aufgefüllt, auch am Periodenende),
+  PT15M/PT60M, „keine Daten“-Quittung. Vertragsfeld `quelle = 'entsoe'`.
+- **Schnittstelle zum Symcon Energie Manager:** neue Variable „Marktdaten (Energie Manager)“
+  (Ident `MarketData`) im Format von Symcons Modul „Strompreis“ — `[{start, end, price}]`, ct/kWh,
+  ab der laufenden Viertelstunde bis zu 24 Stunden, zu jeder Viertelstunde und nach jedem Abruf
+  neu geschrieben. Im Energie Manager unter „Energiepreise“ auswählen. Optional Grundpreis,
+  Steuer und Aufschlag des eigenen dynamischen Tarifs (Rechnung wie „Strompreis“, Standard 0 =
+  reiner Börsenpreis); wirkt nur auf diese Variable, Vertrag und übrige Variablen bleiben netto.
+
 ## [0.2.1] - 2026-09-14
 
 ### Changed

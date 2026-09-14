@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.2.1-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.3.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml)
@@ -32,9 +32,24 @@ nur die Preise.
 | Quelle | Auflösung | Anmeldung | Hinweise |
 |---|---|---|---|
 | **Energy-Charts** (Fraunhofer ISE), Standard | Viertelstunde | keine | Lizenz CC BY 4.0, Daten Bundesnetzagentur \| SMARD.de. Begrenzt die Abfragen pro Minute — das Modul fragt meist nur 1–5-mal am Tag und hält sich an jede Pause (HTTP 429 + `Retry-After`). |
+| **EPEX Spot (über ENTSO-E)** | Viertelstunde | kostenloser Zugangsschlüssel | Die Day-Ahead-Ergebnisse der Strombörse EPEX Spot, veröffentlicht auf der ENTSO-E Transparency Platform (so bindet auch Symcons Modul „Strompreis“ „EPEX Spot“ an). Schlüssel: Konto auf transparency.entsoe.eu, dann per E-Mail „Restful API access“ beantragen ([Anleitung](https://transparencyplatform.zendesk.com/hc/en-us/articles/12845911031188-How-to-get-security-token)). Direkt bei EPEX Spot gibt es die Daten nur mit kostenpflichtigem Vertrag. |
 | **aWATTar** | Stunde | keine | Kostenlos im Rahmen fairer Nutzung. Stundenwerte werden auf vier gleiche Viertelstunden verteilt; eine einzelne negative Viertelstunde kann im Stundenmittel verschwinden. |
 
-ENTSO-E (Viertelstunden, kostenloses Token) ist als weitere Ersatzquelle vorgesehen.
+Der ENTSO-E-Zugangsschlüssel wird als Attribut gespeichert — nie im Formular, im Log oder in
+Fehlermeldungen (IP-Symcon verschlüsselt Attribute nicht, sie liegen aber außerhalb der
+Konfiguration).
+
+## Symcon Energie Manager
+
+Die Variable **„Marktdaten (Energie Manager)“** (Ident `MarketData`) liefert die Preise im Format
+von Symcons Modul „Strompreis“: `[{"start": Unix, "end": Unix, "price": ct/kWh}, …]`, ab der
+laufenden Viertelstunde für bis zu 24 Stunden, zu jeder Viertelstunde neu geschrieben. Im Symcon
+Energie Manager unter **„Energiepreise“** diese Variable auswählen.
+
+Standard ist der reine Börsenpreis. Wer einen dynamischen Tarif hat, der sich am Börsenpreis
+orientiert, trägt im Panel „Symcon Energie Manager“ Grundpreis, Steuer und Aufschlag ein —
+gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag).
+Das wirkt nur auf diese Variable; Vertrag und übrige Variablen bleiben der reine Börsenpreis.
 
 ## So arbeitet das Modul
 
@@ -66,7 +81,7 @@ $curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
 // [[ 'start' => int (Unix, inkl.), 'end' => int (Unix, EXKLUSIV),
 //    'price' => float ct/kWh NETTO (reiner Börsenpreis, negativ möglich),
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
-//    'quelle' => 'energy-charts'|'awattar',
+//    'quelle' => 'energy-charts'|'entsoe'|'awattar',
 //    'aufloesung' => 900|3600,          // Sekunden je Originalwert
 //    'contractVersion' => '1.0' ], …]
 ```
@@ -122,7 +137,7 @@ nutzbar, für den gewerblichen Einsatz ist eine gesonderte Lizenz vom Rechteinha
 (Kontakt: dietmar@gureth.eu). Spenden willkommen: [paypal.me/DietmarGureth](https://paypal.me/DietmarGureth).
 
 Preisdaten: Energy-Charts.info (Fraunhofer ISE), Daten Bundesnetzagentur | SMARD.de, CC BY 4.0;
-aWATTar GmbH.
+ENTSO-E Transparency Platform (EPEX-Spot-Day-Ahead-Ergebnisse); aWATTar GmbH.
 
 ---
 

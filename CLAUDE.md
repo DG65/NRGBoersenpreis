@@ -64,8 +64,22 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
 - **aWATTar** `https://api.awattar.de|at/v1/marketdata?start=ms&end=ms`: `data[]` mit
   `start_timestamp`/`end_timestamp` (ms), `marketprice` (Eur/MWh). Nur Stundenwerte, auch am
   23-Stunden-Tag. Fair Use ~100 Abfragen/Tag. Ohne Parameter nur ab jetzt.
-- **ENTSO-E** (Viertelstunden, Token per E-Mail beantragen, 400 Abfragen/min): später, dann
-  Token als Attribut nach der Credentials-Konvention.
+- **EPEX Spot über ENTSO-E** (seit 0.3.0, Dietmar 14.09.2026 „EPEX Spot als Quelle“):
+  `web-api.tp.entsoe.eu/api?securityToken=…&documentType=A44&periodStart/End=JJJJMMTTHHMM (UTC)
+  &in/out_Domain=EIC` (DE-LU `10Y1001A1001A82H`, AT `10YAT-APG------L`). XML
+  `Publication_MarketDocument`, je Periode kleinste `classificationSequence…position` (wie
+  Symcons „Strompreis“), A03 → weggelassene Punkte (auch am Ende) = Vorwert, PT15M/PT60M.
+  „Keine Daten“ = HTTP 400 + `Acknowledgement_MarketDocument` mit Reason-Text. Token im Attribut
+  `EntsoeToken` (Credentials-Konvention), `SetEntsoeToken()` per PasswordTextBox ohne Property,
+  Token wird aus `httpGet`-Fehlertexten ersetzt (***). Direkt-Abruf bei epexspot.com bewusst
+  NICHT: EPEX gibt Marktdaten für externe Nutzung nur mit Vertrag ab (General Conditions of Data
+  Use). Kein echter Token in dieser Sitzung — Prüfstand nutzt aus Energy-Charts-Preisen erzeugtes
+  A44-XML (Format nach Symcons Test-Fixture + ENTSO-E-Doku); Live-Test mit echtem Schlüssel offen.
+- **Symcon Energie Manager** (seit 0.3.0): Variable `MarketData` im Format von
+  symcon/Strompreis (`NormalizeAndReduce`): `[{start,end,price ct/kWh}]`, ab laufender
+  Viertelstunde ≤ 96 Einträge (24 h), Preis = Grundpreis + spot × (1+Steuer) × (1+Aufschlag),
+  Properties `MarketBase/MarketTax/MarketSurcharge` Standard 0. Format dort nicht dokumentiert —
+  Referenz ist der Quellcode von symcon/Strompreis (Commit 75f71d6, 08.07.2026).
 
 ## Prüfen
 

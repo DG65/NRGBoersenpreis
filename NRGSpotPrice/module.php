@@ -52,7 +52,7 @@ class NRGSpotPrice extends IPSModule
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.2.0';
+    private const NEWS_VERSION = '0.3.0';
     private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
@@ -60,6 +60,16 @@ class NRGSpotPrice extends IPSModule
 
     private const SOURCE_ENERGYCHARTS = 0;
     private const SOURCE_AWATTAR      = 1;
+    // EPEX-Spot-Day-Ahead-Ergebnisse über die ENTSO-E Transparency Platform — so bindet auch
+    // Symcons eigenes Modul „Strompreis“ „EPEX Spot“ an. EPEX selbst gibt Daten nur mit Vertrag ab.
+    private const SOURCE_ENTSOE       = 2;
+
+    private const ENTSOE_URL       = 'https://web-api.tp.entsoe.eu/api';
+    private const ENTSOE_TOKEN_URL = 'https://transparencyplatform.zendesk.com/hc/en-us/articles/12845911031188-How-to-get-security-token';
+    private const ENTSOE_EIC       = [
+        'DE-LU' => '10Y1001A1001A82H',
+        'AT'    => '10YAT-APG------L',
+    ];
 
     private const EC_URL      = 'https://api.energy-charts.info/price';
     private const AWATTAR_URL = [
@@ -88,6 +98,12 @@ class NRGSpotPrice extends IPSModule
 
         $this->RegisterPropertyInteger('Source', self::SOURCE_ENERGYCHARTS);
         $this->RegisterPropertyString('BiddingZone', 'DE-LU');
+        // Nur für die Variable „Marktdaten“ (Symcon Energie Manager): wie Symcons Modul
+        // „Strompreis“ Preis = Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag).
+        // Standard 0 = reiner Börsenpreis — keine Tarifannahme (keine eigene Anlage als Norm).
+        $this->RegisterPropertyFloat('MarketBase', 0.0);
+        $this->RegisterPropertyFloat('MarketTax', 0.0);
+        $this->RegisterPropertyFloat('MarketSurcharge', 0.0);
 
         // Zwischenspeicher bewusst als Attribut: geht er bei einem Modul-Resync
         // verloren, holt der nächste Abruf einfach alles neu.
@@ -99,6 +115,10 @@ class NRGSpotPrice extends IPSModule
         // Archivierung von „Börsenpreis jetzt" wird genau EINMAL eingeschaltet (Grundlage für
         // GetPriceHistory). Schaltet der Nutzer sie danach ab, bleibt sie aus.
         $this->RegisterAttributeBoolean('ArchiveInitDone', false);
+        // ENTSO-E-Zugangsschlüssel: dauerhaft nötig, kein Handshake → Attribut, nie Property
+        // (NRG-Stack-Credentials-Konvention). Klartext in der IPS-Datenbank, aber nie im
+        // Formular, Log oder in Fehlermeldungen.
+        $this->RegisterAttributeString('EntsoeToken', '');
 
         $this->RegisterAttributeBoolean('PurposeIntroGone', false);
         $this->RegisterAttributeString('SeenNews', '');
@@ -122,6 +142,9 @@ class NRGSpotPrice extends IPSModule
         $this->MaintainVariable('NegativeNow', 'Negativer Börsenpreis jetzt', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
         $this->MaintainVariable('NextNegativeStart', 'Nächste negative Viertelstunde', VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
         $this->MaintainVariable('TomorrowAvailable', 'Preise für morgen veröffentlicht', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 4, true);
+        // Format wie Symcons Modul „Strompreis“ (Ident MarketData) — der Energie Manager wählt
+        // diese Variable im Feld „Energiepreise“.
+        $this->MaintainVariable('MarketData', 'Marktdaten (Energie Manager)', VARIABLETYPE_STRING, '~TextBox', 5, true);
         $this->ensureArchiving();
 
         // Quelle oder Gebotszone gewechselt: alte Preise gehören nicht mehr zur
@@ -217,6 +240,35 @@ class NRGSpotPrice extends IPSModule
         return $this->refresh(true);
     }
 
+    /**
+     * SPOT_SetEntsoeToken($id, string $Token): string — ENTSO-E-Zugangsschlüssel speichern
+     * (leer = löschen). Schreibt nur das Attribut, leert das Eingabefeld, ruft bei gewählter
+     * Quelle ENTSO-E sofort ab. Der Schlüssel erscheint nie im Rückgabetext.
+     */
+    public function SetEntsoeToken(string $Token): string
+    {
+        $Token = trim($Token);
+        $this->WriteAttributeString('EntsoeToken', $Token);
+        $this->WriteAttributeString('LoggedError', '');
+        $this->UpdateFormField('EntsoeTokenInput', 'value', '');
+        $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->entsoeTokenStatus());
+        if ($Token === '') {
+            return '🗑 ENTSO-E-Zugangsschlüssel gelöscht.';
+        }
+        if ($this->source() !== self::SOURCE_ENTSOE) {
+            return '✅ Zugangsschlüssel gespeichert. Er wird genutzt, sobald die Quelle „EPEX Spot (über ENTSO-E)“ gewählt und übernommen ist.';
+        }
+        return "✅ Zugangsschlüssel gespeichert.\n" . $this->refresh(true);
+    }
+
+    /** Formular: Felder für den ENTSO-E-Schlüssel nur bei dieser Quelle zeigen (ändert nichts Gespeichertes). */
+    public function UIChangeSource(int $Source): void
+    {
+        foreach (['EntsoeTokenStatus', 'EntsoeTokenInput', 'EntsoeTokenButton', 'EntsoeTokenGuide'] as $name) {
+            $this->UpdateFormField($name, 'visible', $Source === self::SOURCE_ENTSOE);
+        }
+    }
+
     /** Timer-Einstieg: zu jeder Viertelstunde die Anzeige-Variablen aus dem Zwischenspeicher setzen. */
     public function Tick()
     {
@@ -296,7 +348,18 @@ class NRGSpotPrice extends IPSModule
         $source = $this->source();
         $zone = $this->zone();
         $todayStart = $this->dayStart($now, 0);
-        if ($source === self::SOURCE_AWATTAR) {
+        $token = '';
+        if ($source === self::SOURCE_ENTSOE) {
+            $sourceName = 'ENTSO-E';
+            $token = trim((string)$this->ReadAttributeString('EntsoeToken'));
+            if ($token === '') {
+                return $this->fail('Für „EPEX Spot (über ENTSO-E)“ ist noch kein Zugangsschlüssel hinterlegt (Panel „Datenquelle“).');
+            }
+            // ENTSO-E erwartet UTC im Format JJJJMMTTHHMM; heute 00:00 bis übermorgen 00:00 Ortszeit.
+            $url = self::ENTSOE_URL . '?securityToken=' . rawurlencode($token) . '&documentType=A44'
+                . '&periodStart=' . gmdate('YmdHi', $todayStart) . '&periodEnd=' . gmdate('YmdHi', $this->dayStart($now, 2))
+                . '&out_Domain=' . self::ENTSOE_EIC[$zone] . '&in_Domain=' . self::ENTSOE_EIC[$zone];
+        } elseif ($source === self::SOURCE_AWATTAR) {
             $sourceName = 'aWATTar';
             $url = self::AWATTAR_URL[$zone] . '?start=' . ($todayStart * 1000) . '&end=' . ($this->dayStart($now, 2) * 1000);
         } else {
@@ -305,22 +368,31 @@ class NRGSpotPrice extends IPSModule
         }
 
         $r = $this->httpGet($url);
+        if ($token !== '') {
+            // PHP-Warnungen von file_get_contents enthalten die URL — Schlüssel nie weitergeben.
+            $r['error'] = str_replace([$token, rawurlencode($token)], '***', (string)$r['error']);
+        }
         $status = (int)$r['status'];
         if ($status === 429) {
             $wait = $this->retryAfterSeconds($r['headers']['retry-after'] ?? '', $now);
             $this->WriteAttributeInteger('BlockedUntil', $now + $wait);
             return $this->fail($sourceName . ' meldet ein Ratenlimit (HTTP 429) — Pause bis ' . date('H:i:s', $now + $wait) . ' Uhr.');
         }
-        if ($status !== 200) {
+        // ENTSO-E beantwortet „keine Daten“ mit HTTP 400 und einem Quittungs-XML samt Grund.
+        if ($source === self::SOURCE_ENTSOE && ($status === 200 || $status === 400)) {
+            $parsed = $this->parseEntsoe((string)$r['body']);
+        } elseif ($status !== 200) {
             $why = $status === 0 ? 'nicht erreichbar' . ($r['error'] !== '' ? ' (' . $r['error'] . ')' : '')
-                : ($status === 404 ? 'hat für diesen Zeitraum keine Daten (HTTP 404)' : 'antwortet mit HTTP ' . $status);
+                : ($status === 404 ? 'hat für diesen Zeitraum keine Daten (HTTP 404)'
+                : ($status === 401 ? 'lehnt den Zugangsschlüssel ab (HTTP 401) — bitte Schlüssel prüfen' : 'antwortet mit HTTP ' . $status));
             return $this->fail($sourceName . ' ' . $why . '.');
+        } else {
+            $data = json_decode((string)$r['body'], true);
+            if (!is_array($data)) {
+                return $this->fail($sourceName . ' lieferte keine lesbaren Daten (kein JSON).');
+            }
+            $parsed = $source === self::SOURCE_AWATTAR ? $this->parseAwattar($data) : $this->parseEnergyCharts($data);
         }
-        $data = json_decode((string)$r['body'], true);
-        if (!is_array($data)) {
-            return $this->fail($sourceName . ' lieferte keine lesbaren Daten (kein JSON).');
-        }
-        $parsed = $source === self::SOURCE_AWATTAR ? $this->parseAwattar($data) : $this->parseEnergyCharts($data);
         if ($parsed['error'] !== '') {
             return $this->fail($sourceName . ': ' . $parsed['error']);
         }
@@ -493,6 +565,88 @@ class NRGSpotPrice extends IPSModule
         return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
     }
 
+    /**
+     * ENTSO-E A44 (Day-Ahead-Preise, XML „Publication_MarketDocument“). Je Liefertag können
+     * mehrere TimeSeries kommen — wie Symcons „Strompreis“ gilt die mit der kleinsten
+     * classificationSequence-Position. Kurventyp A03 lässt Punkte weg, deren Preis sich nicht
+     * ändert: fehlende Positionen (auch am Periodenende) übernehmen den vorigen Preis.
+     * Stundenwerte (PT60M) werden wie bei aWATTar auf Viertelstunden verteilt.
+     * „Keine Daten“ kommt als „Acknowledgement_MarketDocument“ mit Grund.
+     */
+    private function parseEntsoe(string $body): array
+    {
+        $err = function (string $m) {
+            return ['slots' => [], 'license' => '', 'error' => $m];
+        };
+        $prev = libxml_use_internal_errors(true);
+        $xml = simplexml_load_string($body);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        if ($xml === false) {
+            return $err('keine lesbaren Daten (kein XML).');
+        }
+        if ($xml->getName() === 'Acknowledgement_MarketDocument') {
+            $reason = trim((string)($xml->xpath('//*[local-name()="Reason"]/*[local-name()="text"]')[0] ?? ''));
+            return $err(stripos($reason, 'No matching data') !== false
+                ? 'hat für diesen Zeitraum noch keine Daten.'
+                : 'meldet: ' . ($reason !== '' ? mb_substr($reason, 0, 200) : 'Anfrage abgelehnt') . '.');
+        }
+        $chosen = [];
+        foreach ($xml->xpath('//*[local-name()="TimeSeries"]') ?: [] as $ts) {
+            $currency = strtoupper((string)($ts->xpath('./*[local-name()="currency_Unit.name"]')[0] ?? ''));
+            $unit = strtoupper((string)($ts->xpath('./*[local-name()="price_Measure_Unit.name"]')[0] ?? ''));
+            if ($currency !== 'EUR' || $unit !== 'MWH') {
+                return $err('unerwartete Einheit „' . $currency . '/' . $unit . '“ (erwartet EUR/MWH).');
+            }
+            $pos = (int)($ts->xpath('./*[local-name()="classificationSequence_AttributeInstanceComponent.position"]')[0] ?? 0);
+            foreach ($ts->xpath('./*[local-name()="Period"]') ?: [] as $period) {
+                $start = strtotime((string)($period->xpath('./*[local-name()="timeInterval"]/*[local-name()="start"]')[0] ?? ''));
+                $end = strtotime((string)($period->xpath('./*[local-name()="timeInterval"]/*[local-name()="end"]')[0] ?? ''));
+                if ($start === false || $end === false || $end <= $start) {
+                    continue;
+                }
+                if (!isset($chosen[$start]) || $pos < $chosen[$start]['pos']) {
+                    $chosen[$start] = ['pos' => $pos, 'period' => $period, 'end' => $end];
+                }
+            }
+        }
+        $slots = [];
+        foreach ($chosen as $start => $c) {
+            $resText = (string)($c['period']->xpath('./*[local-name()="resolution"]')[0] ?? '');
+            $res = ['PT15M' => 900, 'PT30M' => 1800, 'PT60M' => 3600][$resText] ?? 0;
+            if ($res === 0) {
+                return $err('unerwartete Auflösung „' . $resText . '“.');
+            }
+            $byPos = [];
+            foreach ($c['period']->xpath('./*[local-name()="Point"]') ?: [] as $pt) {
+                $p = (int)($pt->xpath('./*[local-name()="position"]')[0] ?? 0);
+                $amount = (string)($pt->xpath('./*[local-name()="price.amount"]')[0] ?? '');
+                if ($p > 0 && is_numeric($amount)) {
+                    $byPos[$p] = (float)$amount;
+                }
+            }
+            $count = intdiv($c['end'] - $start, $res);
+            $price = null;
+            for ($p = 1; $p <= $count; $p++) {
+                if (isset($byPos[$p])) {
+                    $price = $byPos[$p];
+                }
+                if ($price === null) {
+                    continue; // vor dem ersten Punkt nichts erfinden
+                }
+                $t0 = $start + ($p - 1) * $res;
+                for ($t = $t0; $t < $t0 + $res; $t += 900) {
+                    $slots[$t] = ['start' => $t, 'end' => $t + 900, 'price' => $this->ctPerKwh($price), 'res' => $res];
+                }
+            }
+        }
+        if (count($slots) === 0) {
+            return $err('lieferte keine Preise (keine TimeSeries).');
+        }
+        ksort($slots);
+        return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
+    }
+
     /** Häufigster Abstand zweier Zeitstempel (Sekunden); ein einzelner Wert gilt als Viertelstunde. */
     private function resolutionOf(array $ts): int
     {
@@ -547,6 +701,7 @@ class NRGSpotPrice extends IPSModule
         $this->setIfChanged('NegativeNow', $current !== null && $current['price'] < 0);
         $this->setIfChanged('NextNegativeStart', $nextNeg);
         $this->setIfChanged('TomorrowAvailable', $this->hasDay($now, 1));
+        $this->setIfChanged('MarketData', $this->marketDataJson($now));
 
         // Ein gescheiterter Abruf bei gültigen Preisen (z. B. Ratenlimit) ist kein Instanzfehler:
         // Watchdogs sehen nur den Status (SUITE.md 9d). Er steht im Formular und einmal im Log.
@@ -665,7 +820,44 @@ class NRGSpotPrice extends IPSModule
 
     private function cacheQuelle(array $cache): string
     {
-        return ((int)($cache['source'] ?? $this->source())) === self::SOURCE_AWATTAR ? 'awattar' : 'energy-charts';
+        return [self::SOURCE_AWATTAR => 'awattar', self::SOURCE_ENTSOE => 'entsoe'][(int)($cache['source'] ?? $this->source())] ?? 'energy-charts';
+    }
+
+    /**
+     * Inhalt der Variable „Marktdaten (Energie Manager)“ im Format von Symcons Modul
+     * „Strompreis“: [{"start": Unix, "end": Unix, "price": ct/kWh}, …], ab der laufenden
+     * Viertelstunde höchstens 24 Stunden (wie dort). Preis = Grundpreis + Börsenpreis ×
+     * (1 + Steuer %) × (1 + Aufschlag %) — gleiche Rechnung wie „Strompreis“, Standard 0 =
+     * reiner Börsenpreis. Nur diese Variable rechnet so; der Verbund-Vertrag bleibt netto.
+     */
+    private function marketDataJson(int $now): string
+    {
+        $base = (float)$this->ReadPropertyFloat('MarketBase');
+        $tax = (float)$this->ReadPropertyFloat('MarketTax');
+        $surcharge = (float)$this->ReadPropertyFloat('MarketSurcharge');
+        $out = [];
+        foreach ($this->cache()['slots'] ?? [] as $s) {
+            if ($s['end'] <= $now) {
+                continue;
+            }
+            if (count($out) >= 96) {
+                break;
+            }
+            $out[] = [
+                'start' => (int)$s['start'],
+                'end'   => (int)$s['end'],
+                'price' => round($base + (float)$s['price'] * (1 + $tax / 100) * ((100 + $surcharge) / 100), 4),
+            ];
+        }
+        return json_encode($out);
+    }
+
+    private function entsoeTokenStatus(): string
+    {
+        $t = trim((string)$this->ReadAttributeString('EntsoeToken'));
+        return $t === ''
+            ? 'ℹ️ Noch kein ENTSO-E-Zugangsschlüssel hinterlegt.'
+            : '✅ ENTSO-E-Zugangsschlüssel hinterlegt (endet auf …' . mb_substr($t, -4) . ').';
     }
 
     private function setIfChanged(string $ident, $value): void
@@ -701,7 +893,8 @@ class NRGSpotPrice extends IPSModule
 
     private function source(): int
     {
-        return (int)$this->ReadPropertyInteger('Source') === self::SOURCE_AWATTAR ? self::SOURCE_AWATTAR : self::SOURCE_ENERGYCHARTS;
+        $s = (int)$this->ReadPropertyInteger('Source');
+        return in_array($s, [self::SOURCE_AWATTAR, self::SOURCE_ENTSOE], true) ? $s : self::SOURCE_ENERGYCHARTS;
     }
 
     private function zone(): string
@@ -745,7 +938,7 @@ class NRGSpotPrice extends IPSModule
 
     private function sourceName(int $source): string
     {
-        return $source === self::SOURCE_AWATTAR ? 'aWATTar' : 'Energy-Charts';
+        return [self::SOURCE_AWATTAR => 'aWATTar', self::SOURCE_ENTSOE => 'EPEX Spot (ENTSO-E)'][$source] ?? 'Energy-Charts';
     }
 
     private function cacheSummary(): string
@@ -851,6 +1044,10 @@ class NRGSpotPrice extends IPSModule
 
     private function sourceInfo(): string
     {
+        if ($this->source() === self::SOURCE_ENTSOE) {
+            return 'EPEX Spot über ENTSO-E: die Day-Ahead-Ergebnisse der Strombörse EPEX Spot, veröffentlicht auf der ENTSO-E Transparency Platform — Viertelstunden, kostenlos, aber mit eigenem Zugangsschlüssel (Konto auf transparency.entsoe.eu anlegen, dann per E-Mail an transparency@entsoe.eu mit Betreff „Restful API access“ beantragen). '
+                . 'Quellennennung: ENTSO-E Transparency Platform. Direkt bei EPEX Spot gibt es die Daten nur mit kostenpflichtigem Vertrag.';
+        }
         if ($this->source() === self::SOURCE_AWATTAR) {
             return 'aWATTar: kostenlos im Rahmen fairer Nutzung (laut Anbieter etwa 100 Abfragen am Tag — dieses Modul braucht meist 1–5). '
                 . 'Liefert nur Stundenwerte: eine einzelne negative Viertelstunde kann im Stundenmittel verschwinden. Für die Viertelstunden-Pflichten (§ 51 EEG) ist Energy-Charts die bessere Wahl.';
@@ -886,8 +1083,9 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
             'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
             'items' => [
-                ['type' => 'Label', 'caption' => '• Preisverlauf: „Börsenpreis jetzt" wird jetzt archiviert (einmalig eingeschaltet, abschaltbar). Daraus liefert SPOT_GetPriceHistory() auch vergangene Tage — z. B. für das NRG-Stack Dashboard, das so rückblickend zeigt, wann es negative Preise gab. Der Verlauf beginnt mit dieser Version.'],
-                ['type' => 'Label', 'caption' => '• Die Preiskurve für heute und morgen zeigt das NRG-Stack Dashboard im PV-Monitoring, Reiter „Strompreis".'],
+                ['type' => 'Label', 'caption' => '• Neue Quelle „EPEX Spot (über ENTSO-E)“: die Börsenergebnisse der EPEX Spot in Viertelstunden, mit kostenlosem ENTSO-E-Zugangsschlüssel (Panel „Datenquelle“).'],
+                ['type' => 'Label', 'caption' => '• Symcon Energie Manager: Die neue Variable „Marktdaten (Energie Manager)“ liefert die Preise im Format von Symcons Modul „Strompreis“ — im Energie Manager unter „Energiepreise“ auswählen. Optional Grundpreis, Steuer und Aufschlag deines Tarifs (Panel „Symcon Energie Manager“).'],
+                ['type' => 'Label', 'caption' => '• Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).'],
                 ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'],
             ],
         ];
@@ -908,6 +1106,7 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
                 ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
                 ['type' => 'Label', 'caption' => 'Anzeige: Die Preiskurve für heute und morgen mit den negativen Viertelstunden zeigt das NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis"). Die Variablen lassen sich zusätzlich per Verknüpfung im Objektbaum in den Bereich des WebFronts legen.'],
+                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“. Grundpreis, Steuer und Aufschlag wirken nur auf diese Variable.'],
                 ['type' => 'Label', 'caption' => 'Skripte und andere Module: SPOT_GetPriceCurve(<InstanzID>) liefert eine Liste aller Viertelstunden von heute und (sobald veröffentlicht) morgen — je Eintrag start, end (exklusiv, Unixzeit), price (ct/kWh), basis „spot", netzentgelt „fehlt", level (immer leer), quelle, aufloesung (900 = Viertelstunde, 3600 = aus Stundenwert verteilt) und contractVersion. Lücken sind möglich, fehlende Werte stehen nie als 0 drin.'],
                 ['type' => 'Label', 'caption' => 'SPOT_GetPriceHistory(<InstanzID>, von, bis) liefert dieselben Einträge für einen beliebigen Zeitraum (Unixzeit, bis exklusiv, höchstens 400 Tage). Vergangene Viertelstunden stammen aus dem Archiv (quelle „archiv", Stufenverlauf: ein Wert gilt bis zum nächsten, höchstens 12 Stunden — längere Lücken, z. B. während Symcon aus war, bleiben leer); vor dem ersten Archiveintrag gibt es keine Einträge.'],
                 ['type' => 'Label', 'caption' => 'SPOT_Update(<InstanzID>) ruft sofort ab und liefert das Ergebnis als Text. Zeitumstellung: Tage mit 23 bzw. 25 Stunden haben 92 bzw. 100 Viertelstunden — alle Zeitstempel sind echte Unixzeit, nichts wird aus festen Tageslängen errechnet.'],
@@ -918,6 +1117,7 @@ class NRGSpotPrice extends IPSModule
 
     private function SourcePanel(): array
     {
+        $entsoe = $this->source() === self::SOURCE_ENTSOE;
         $zones = [];
         foreach (self::ZONES as $value => $caption) {
             $zones[] = ['caption' => $caption, 'value' => $value];
@@ -926,16 +1126,24 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'expanded' => true,
             'caption' => '🔌  Datenquelle',
             'items' => [
-                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => '560px', 'options' => [
+                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => '560px', 'onChange' => 'SPOT_UIChangeSource($id, $Source);', 'options' => [
                     ['caption' => 'Energy-Charts (Fraunhofer ISE) — Viertelstunden, ohne Anmeldung (empfohlen)', 'value' => self::SOURCE_ENERGYCHARTS],
+                    ['caption' => 'EPEX Spot (über ENTSO-E) — Viertelstunden, Zugangsschlüssel nötig', 'value' => self::SOURCE_ENTSOE],
                     ['caption' => 'aWATTar — nur Stundenwerte', 'value' => self::SOURCE_AWATTAR],
                 ]],
+                ['type' => 'Label', 'name' => 'EntsoeTokenStatus', 'visible' => $entsoe, 'caption' => $this->entsoeTokenStatus()],
+                ['type' => 'RowLayout', 'items' => [
+                    ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => '420px'],
+                    ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => '🔑 Schlüssel speichern', 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
+                ]],
+                ['type' => 'Button', 'name' => 'EntsoeTokenGuide', 'visible' => $entsoe, 'caption' => 'Anleitung: Zugangsschlüssel beantragen', 'onClick' => "echo '" . self::ENTSOE_TOKEN_URL . "';", 'link' => true],
                 ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => '560px', 'options' => $zones],
                 ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '500px', 'popup' => [
                     'caption' => 'Welche Quelle und Gebotszone soll ich wählen?',
                     'items' => [
                         ['type' => 'Label', 'caption' => 'Gebotszone: die Zone deines Netzanschlusses — Deutschland und Luxemburg bilden gemeinsam „DE-LU", Österreich ist „AT". Der Preis ist in der ganzen Zone gleich.'],
                         ['type' => 'Label', 'caption' => 'Energy-Charts (empfohlen): Viertelstundenwerte direkt aus der Day-Ahead-Auktion, frei nutzbar mit Quellennennung. Genau das braucht man für Regeln, die je Viertelstunde gelten, z. B. die Vergütungsregel bei negativen Preisen.'],
+                        ['type' => 'Label', 'caption' => 'EPEX Spot (über ENTSO-E): dieselben Börsenergebnisse der EPEX Spot, direkt von der europäischen Transparenzplattform der Netzbetreiber, ebenfalls in Viertelstunden. Braucht einen kostenlosen, persönlichen Zugangsschlüssel — sinnvoll als unabhängige zweite Quelle oder wenn du ohnehin ein ENTSO-E-Konto hast.'],
                         ['type' => 'Label', 'caption' => 'aWATTar: Ersatzquelle, falls Energy-Charts einmal nicht erreichbar ist. Liefert nur Stundenwerte; eine einzelne negative Viertelstunde kann darin untergehen.'],
                         ['type' => 'Label', 'caption' => 'Nach einem Wechsel verwirft das Modul die alten Preise und holt beim Übernehmen sofort neu.'],
                     ],
@@ -967,6 +1175,30 @@ class NRGSpotPrice extends IPSModule
                         ['type' => 'Label', 'caption' => 'Für PV-Anlagen mit Inbetriebnahme ab 25.02.2025 (Solarspitzengesetz) entfällt die Einspeisevergütung in jeder Viertelstunde, in der der Day-Ahead-Börsenpreis negativ ist (§ 51 EEG). Die ausgefallene Zeit wird am Ende der Förderdauer teilweise angehängt.'],
                         ['type' => 'Label', 'caption' => 'Ältere Anlagen sind je nach Größe und Inbetriebnahmejahr anders oder gar nicht betroffen. Eine Einordnung für deine Anlage liefert das NRG-Stack EMS über seine Anlagendaten. Keine Rechtsberatung.'],
                         ['type' => 'Label', 'caption' => 'Dieses Modul zeigt, wann negative Viertelstunden anstehen — ein EMS kann die Energie dann z. B. in die Batterie, die Wärmepumpe oder das Auto lenken statt ins Netz.'],
+                    ],
+                ]],
+            ],
+        ];
+    }
+
+    private function EnergyManagerPanel(): array
+    {
+        $vid = IPS_GetObjectIDByIdent('MarketData', $this->InstanceID);
+        return [
+            'type' => 'ExpansionPanel', 'expanded' => false,
+            'caption' => '⚡  Symcon Energie Manager',
+            'items' => [
+                ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach diesen Preisen.'],
+                ['type' => 'Label', 'caption' => 'Standard (alle Felder 0): reiner Börsenpreis, netto. Hast du einen dynamischen Tarif, der sich nach dem Börsenpreis richtet, kannst du ihn hier nachbilden — gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag). Das wirkt nur auf diese Variable, alle anderen Werte bleiben der reine Börsenpreis.'],
+                ['type' => 'NumberSpinner', 'name' => 'MarketBase', 'caption' => 'Grundpreis je kWh (z. B. Netzentgelt, Abgaben)', 'suffix' => ' ct/kWh', 'digits' => 2, 'minimum' => 0, 'maximum' => 100],
+                ['type' => 'NumberSpinner', 'name' => 'MarketTax', 'caption' => 'Steuer auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 50],
+                ['type' => 'NumberSpinner', 'name' => 'MarketSurcharge', 'caption' => 'Aufschlag des Anbieters auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 100],
+                ['type' => 'PopupButton', 'caption' => 'Wie binde ich den Energie Manager an?', 'width' => '500px', 'popup' => [
+                    'caption' => 'Wie binde ich den Energie Manager an?',
+                    'items' => [
+                        ['type' => 'Label', 'caption' => '1. Im Symcon Energie Manager das Feld „Energiepreise“ öffnen und die Variable „Marktdaten (Energie Manager)“ dieser Instanz auswählen.'],
+                        ['type' => 'Label', 'caption' => '2. Sollen Geräte nach deinem echten Bezugspreis geplant werden, oben Grundpreis, Steuer und Aufschlag deines dynamischen Tarifs eintragen. Für reine Börsenpreis-Signale (z. B. negative Preise) alles auf 0 lassen.'],
+                        ['type' => 'Label', 'caption' => '3. Die Variable wird zu jeder Viertelstunde und nach jedem Abruf neu geschrieben; vergangene Viertelstunden fallen heraus.'],
                     ],
                 ]],
             ],
@@ -1017,7 +1249,7 @@ class NRGSpotPrice extends IPSModule
 
         $elements = array_values(array_filter(array_merge(
             [$this->PurposeIntro(), $this->NewsBanner(), $this->DocPanel()],
-            [$this->SourcePanel(), $this->PricePanel()],
+            [$this->SourcePanel(), $this->PricePanel(), $this->EnergyManagerPanel()],
             [$this->ForumHint(), $this->LicenseHint()]
         )));
 
