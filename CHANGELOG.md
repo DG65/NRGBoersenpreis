@@ -3,6 +3,26 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.5.0] - 2026-09-14
+
+### Changed
+- **Tarif für den Symcon Energie Manager wie bei Tibber aufgebaut** (Dietmar: „zu dünn“;
+  abgestimmt mit der Tibber-Grid-Rewards-Sitzung). Preis in „Marktdaten (Energie Manager)“ je
+  Viertelstunde, erste Quelle gewinnt:
+  1. **Tibber Grid Rewards installiert** (abwählbar): dessen echter Tibber-Endpreis
+     (`TIBBERGR_GetPriceCurve`, nur `basis='endkunde'`, nur Vertrag 1.x — sonst sichtbare Meldung).
+  2. **Eigener Tarif** (neu): (Börsenpreis + Aufschlag des Anbieters + Netzentgelt + Konzessionsabgabe
+     + bundesweite Umlagen) × 1,19 — gleiche Begriffe wie Tibber (spot/beschaffung/netzentgelt/
+     steuernAbgaben), aber vorwärts gerechnet. Netzentgelt als Arbeitspreis oder zeitvariabel nach
+     **§ 14a Modul 3** (Hoch-/Standard-/Niedertarif, Zeitfenster aus dem Preisblatt, je Fenster
+     „alle Tage“/„Mo–Fr“/„Sa–So“, Gültigkeit je Kalenderquartal). Umlagen fest mit Stand 06/2026
+     (Stromsteuer 2,05, Offshore 0,941, KWK 0,446, §19-StromNEV 1,56 ct/kWh netto).
+  3. Quelle Tibber-Preisübersicht: Tibbers Endpreis für die Postleitzahl.
+  4. Sonst der reine Börsenpreis.
+- Statuszeile im Panel zeigt, woher der Preis gerade kommt. Alle Tarif-Felder aus bzw. 0 als
+  Vorgabe (keine Beispielwerte einer echten Anlage). Die Felder Grundpreis/Steuer/Aufschlag aus
+  0.3/0.4 entfallen im Formular (weiter registriert, ohne Wirkung — kein Migrationsbruch).
+
 ## [0.4.0] - 2026-09-14
 
 ### Added

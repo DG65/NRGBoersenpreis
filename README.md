@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.4.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.5.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGSpotPrice/actions/workflows/check-style.yml)
@@ -47,12 +47,22 @@ von Symcons Modul „Strompreis“: `[{"start": Unix, "end": Unix, "price": ct/k
 laufenden Viertelstunde für bis zu 24 Stunden, zu jeder Viertelstunde neu geschrieben. Im Symcon
 Energie Manager unter **„Energiepreise“** diese Variable auswählen.
 
-Standard ist der reine Börsenpreis. Wer einen dynamischen Tarif hat, der sich am Börsenpreis
-orientiert, trägt im Panel „Symcon Energie Manager“ Grundpreis, Steuer und Aufschlag ein —
-gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag).
-Das wirkt nur auf diese Variable; Vertrag und übrige Variablen bleiben der reine Börsenpreis.
-Mit der Quelle **Tibber-Preisübersicht** enthält die Variable stattdessen Tibbers Endpreis inkl.
-Mehrwertsteuer für die eingetragene Postleitzahl — der Tibber-Preis ohne Tibber-Zugang.
+Der Preis darin ist dein **Endpreis** je Viertelstunde, die erste passende Quelle gewinnt:
+
+1. **Tibber Grid Rewards installiert** (abwählbar): dein echter Tibber-Preis von dort.
+2. **Eigener Tarif** (Panel „Symcon Energie Manager & Tarif“): (Börsenpreis + Aufschlag des
+   Anbieters + Netzentgelt + Konzessionsabgabe + bundesweite Umlagen) × 1,19. Das Netzentgelt als
+   Arbeitspreis oder zeitvariabel nach **§ 14a Modul 3** — Hoch-/Standard-/Niedertarif mit den
+   Zeitfenstern aus dem Preisblatt deines Netzbetreibers, je Fenster für alle Tage, Mo–Fr oder
+   Sa–So, gültig je Kalenderquartal. Umlagen fest eingerechnet (Stand 06/2026: Stromsteuer 2,05,
+   Offshore-Netzumlage 0,941, KWK-Umlage 0,446, §19-StromNEV-Umlage 1,56 ct/kWh netto).
+3. Quelle **Tibber-Preisübersicht**: Tibbers Endpreis für deine Postleitzahl.
+4. Sonst der reine Börsenpreis.
+
+Die Begriffe entsprechen der Tarifzerlegung von Tibber Grid Rewards (Börsenpreis, Beschaffung,
+Netzentgelt, Steuern und Abgaben). Das Tarifmodell wirkt nur auf diese Variable; Vertrag und
+übrige Variablen bleiben der reine Börsenpreis. Feiertage kennt das Modul nicht, sie zählen wie
+ihr Wochentag.
 
 ## So arbeitet das Modul
 

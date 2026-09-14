@@ -51,7 +51,8 @@ $GLOBALS['ARCHIVES'] = [];  // vorhandene Archiv-Instanzen
 $GLOBALS['AC_LOG'] = [];    // vid => Archivierung an?
 $GLOBALS['AC'] = [];        // vid => [['TimeStamp' => ts, 'Value' => v], ...]
 $GLOBALS['AC_APPLY'] = 0;
-function IPS_GetInstanceListByModuleID(string $guid): array { return $guid === '{43192F0B-135B-4CE7-A0A7-1475603F3060}' ? $GLOBALS['ARCHIVES'] : []; }
+$GLOBALS['INSTANCES'] = []; // Modul-GUID => [Instanz-IDs] (Partnermodule, z. B. Tibber Grid Rewards)
+function IPS_GetInstanceListByModuleID(string $guid): array { return $guid === '{43192F0B-135B-4CE7-A0A7-1475603F3060}' ? $GLOBALS['ARCHIVES'] : ($GLOBALS['INSTANCES'][$guid] ?? []); }
 function IPS_ApplyChanges(int $id): bool { $GLOBALS['AC_APPLY']++; return true; }
 function IPS_InstanceExists(int $id): bool { return true; }
 $GLOBALS['AC_CALLS'] = []; // [start, end, limit] je AC_GetLoggedValues-Aufruf (SUITE.md 9g)
@@ -82,6 +83,8 @@ class IPSModule
     public function ReadPropertyString(string $n): string { return $this->props[$n]; }
     public function ReadPropertyInteger(string $n): int { return $this->props[$n]; }
     public function RegisterPropertyFloat(string $n, float $d): void { if (!array_key_exists($n, $this->props)) { $this->props[$n] = $d; } }
+    public function RegisterPropertyBoolean(string $n, bool $d): void { if (!array_key_exists($n, $this->props)) { $this->props[$n] = $d; } }
+    public function ReadPropertyBoolean(string $n): bool { return $this->props[$n]; }
     public function ReadPropertyFloat(string $n): float { return $this->props[$n]; }
     public function RegisterAttributeString(string $n, string $d): void { if (!array_key_exists($n, $this->attrs)) { $this->attrs[$n] = $d; } }
     public function RegisterAttributeInteger(string $n, int $d): void { if (!array_key_exists($n, $this->attrs)) { $this->attrs[$n] = $d; } }
@@ -434,9 +437,9 @@ check('Kein Link-Button trägt die URL direkt in "link"', !preg_match('/"link":"
 $popups = [];
 array_walk_recursive($f, function () {});
 foreach ($f['elements'] as $el) { foreach ($el['items'] ?? [] as $it) { if (($it['type'] ?? '') === 'PopupButton') { $popups[] = $it; } } }
-check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 4 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 4);
+check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 5 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 5);
 // Live-Fund 13.09.2026: 63 Zeichen liefen bei 460 px über den Knopfrand (Großbuchstaben-Skin).
-check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 4, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
+check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 5, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
 check('Knopf „Preise jetzt abrufen" gibt Rückmeldung per echo', str_contains($txt, 'echo SPOT_Update($id);'));
 $m->AckPurposeIntro(); $m->AckNews(); $m->AckForumHint();
 $f2 = form($m);
@@ -596,11 +599,15 @@ $md = json_decode(v($m, 'MarketData'), true);
 check('Format wie Symcons „Strompreis“: Liste aus {start, end, price}', is_array($md) && array_keys($md[0] ?? []) === ['start', 'end', 'price'] && is_int($md[0]['start']) && is_float($md[0]['price']));
 check('Ab der laufenden Viertelstunde, höchstens 24 Stunden (96 Einträge)', $md[0]['start'] === ts('2026-09-12 10:00:00') && count($md) === 96 && end($md)['end'] === ts('2026-09-13 10:00:00'));
 check('Standard (alles 0): reiner Börsenpreis in ct/kWh', abs($md[0]['price'] - $ec['price'][40] / 10) < 1e-9);
-$m->props['MarketBase'] = 20.0; $m->props['MarketTax'] = 19.0; $m->props['MarketSurcharge'] = 3.0;
+$m->props['TariffEnabled'] = true; $m->props['TariffBeschaffung'] = 2.0; $m->props['TariffKonzession'] = 1.32; $m->props['NetzArbeitspreis'] = 8.0;
 $m->ApplyChanges();
 $md = json_decode(v($m, 'MarketData'), true);
-check('Mit Tarif: Grundpreis + Börsenpreis × 1,19 × 1,03 (Rechnung wie „Strompreis“)', abs($md[0]['price'] - round(20 + $ec['price'][40] / 10 * 1.19 * 1.03, 4)) < 1e-9);
-check('Tarif-Felder wirken NICHT auf Vertrag und „Börsenpreis jetzt“', abs($m->GetPriceCurve()[40]['price'] - $ec['price'][40] / 10) < 1e-9 && abs(v($m, 'CurrentPrice') - $ec['price'][40] / 10) < 1e-9);
+$wantTariff = round(($ec['price'][40] / 10 + 2.0 + 8.0 + 1.32 + 2.05 + 0.941 + 0.446 + 1.56) * 1.19, 4);
+check('Eigener Tarif: (Börsenpreis + Aufschlag + Netzentgelt + Konzession + Umlagen 4,997) × 1,19', abs($md[0]['price'] - $wantTariff) < 1e-9, $md[0]['price'] . ' vs ' . $wantTariff);
+$m->props['MarketBase'] = 20.0; $m->props['MarketTax'] = 19.0; $m->props['MarketSurcharge'] = 3.0;
+$m->ApplyChanges();
+check('Alte Felder Grundpreis/Steuer/Aufschlag (bis 0.4) ohne Wirkung, aber noch registriert (kein Bruch)', abs(json_decode(v($m, 'MarketData'), true)[0]['price'] - $wantTariff) < 1e-9 && array_key_exists('MarketBase', $m->props));
+check('Tarif wirkt NICHT auf Vertrag und „Börsenpreis jetzt“', abs($m->GetPriceCurve()[40]['price'] - $ec['price'][40] / 10) < 1e-9 && abs(v($m, 'CurrentPrice') - $ec['price'][40] / 10) < 1e-9);
 clock('2026-09-12 10:15:02');
 $m->Tick();
 $md = json_decode(v($m, 'MarketData'), true);
@@ -645,7 +652,7 @@ check('Vertrag und „Börsenpreis jetzt“ bleiben der Börsenpreis (nicht der 
 $m->props['MarketBase'] = 20.0;
 $m->ApplyChanges();
 check('Tarif-Felder werden bei Tibber nicht angewendet', abs(json_decode(v($m, 'MarketData'), true)[0]['price'] - $tq[74]['priceIncludingVat'] * 100) < 1e-6);
-check('Formular: Hinweis im Energie-Manager-Panel und Übertragung der PLZ genannt', str_contains(formText(form($m)), 'die drei Felder darunter werden dann nicht verwendet') && str_contains(formText(form($m)), 'wird an Tibber übertragen'));
+check('Formular: Statuszeile nennt den Tibber-Endpreis der PLZ, Übertragung der PLZ genannt', str_contains(formText(form($m)), 'Endpreis aus der Tibber-Preisübersicht für PLZ 10115') && str_contains(formText(form($m)), 'wird an Tibber übertragen'));
 $m->props['TibberPostalCode'] = '80331';
 $GLOBALS['HTTP'][] = ok(fx('tibber-10115-2026-09-14_15.json'));
 $m->ApplyChanges();
@@ -665,6 +672,68 @@ foreach ([['2025-10-26', 'ec-DE-LU-2025-10-26.json', 100], ['2026-03-29', 'ec-DE
     foreach ($ct as $i => $s) { if ($s['start'] !== $ecd['unix_seconds'][$i] || abs($s['price'] - $ecd['price'][$i] / 10) > 1e-9) { $same = false; } }
     check("Sommerzeit $day: $want Viertelstunden, jede zur richtigen Unixzeit (Ortszeit ohne Zeitzone richtig zugeordnet)", $same && contiguous($ct), count($ct) . ' Einträge');
 }
+
+heading('18. Tarif für den Energie Manager — § 14a Modul 3, Wochenende, Quartale, Tibber Grid Rewards');
+$ecW = json_decode(fx('ec-DE-LU-2026-09-14_15.json'), true);
+$spotAt = fn(string $when) => $ecW['price'][array_search(ts($when), $ecW['unix_seconds'], true)] / 10;
+$gross = fn(float $spot, float $netz) => round(($spot + $netz + 4.997) * 1.19, 4); // Aufschlag 0, Konzession 0
+$mdAt = function (SpotTest $m, string $when) { foreach (json_decode(v($m, 'MarketData'), true) as $e) { if ($e['start'] === ts($when)) { return $e['price']; } } return null; };
+$windows = [
+    ['From' => '00:00', 'To' => '06:00', 'Band' => 'NT', 'Days' => 'all'],
+    ['From' => '06:00', 'To' => '16:30', 'Band' => 'ST', 'Days' => 'weekday'],
+    ['From' => '16:30', 'To' => '20:30', 'Band' => 'HT', 'Days' => 'weekday'],
+    ['From' => '20:30', 'To' => '00:00', 'Band' => 'ST', 'Days' => 'all'],
+    ['From' => '06:00', 'To' => '20:30', 'Band' => 'NT', 'Days' => 'weekend'],
+];
+$tariffProps = ['TariffEnabled' => true, 'NetzArbeitspreis' => 8.0, 'Modul3Enabled' => true, 'NetzHT' => 12.0, 'NetzST' => 7.0, 'NetzNT' => 1.0, 'NetzWindows' => json_encode($windows)];
+clock('2026-09-14 10:00:00'); // Montag
+$m = fresh();
+foreach ($tariffProps as $k => $val) { $m->props[$k] = $val; }
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-14_15.json'));
+$m->ApplyChanges();
+check('Mo 10:00 Standardtarif (7), Mo 18:30 Hochtarif (12), Mo 22:00 Standardtarif, Di 03:00 Niedertarif (1)',
+    abs($mdAt($m, '2026-09-14 10:00:00') - $gross($spotAt('2026-09-14 10:00:00'), 7.0)) < 1e-9 && abs($mdAt($m, '2026-09-14 18:30:00') - $gross($spotAt('2026-09-14 18:30:00'), 12.0)) < 1e-9
+    && abs($mdAt($m, '2026-09-14 22:00:00') - $gross($spotAt('2026-09-14 22:00:00'), 7.0)) < 1e-9 && abs($mdAt($m, '2026-09-15 03:00:00') - $gross($spotAt('2026-09-15 03:00:00'), 1.0)) < 1e-9);
+$m->props['Modul3Q3'] = false;
+$m->ApplyChanges();
+check('Quartal ohne Modul 3 (September = Q3 aus): Arbeitspreis 8', abs($mdAt($m, '2026-09-14 18:30:00') - $gross($spotAt('2026-09-14 18:30:00'), 8.0)) < 1e-9);
+$m->props['Modul3Q3'] = true;
+$m->props['NetzWindows'] = json_encode([['From' => '00:00', 'To' => '06:00', 'Band' => 'NT']]); // alte Zeile ohne „Tage“
+$m->ApplyChanges();
+check('Außerhalb jedes Zeitfensters: Arbeitspreis; Zeile ohne „Tage“ gilt für alle Tage', abs($mdAt($m, '2026-09-14 10:00:00') - $gross($spotAt('2026-09-14 10:00:00'), 8.0)) < 1e-9 && abs($mdAt($m, '2026-09-15 03:00:00') - $gross($spotAt('2026-09-15 03:00:00'), 1.0)) < 1e-9);
+check('Statuszeile: eigener Tarif', str_contains(formText(form($m)), '🧾 Preis aus deinem eigenen Tarif'));
+clock('2026-09-12 10:00:00'); // Samstag
+$m = fresh();
+foreach ($tariffProps as $k => $val) { $m->props[$k] = $val; }
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$m->ApplyChanges();
+check('Sa 10:00 gilt das Wochenend-Fenster (Niedertarif 1), nicht der Werktags-Standardtarif', abs($mdAt($m, '2026-09-12 10:00:00') - round(($ec['price'][40] / 10 + 1.0 + 4.997) * 1.19, 4)) < 1e-9);
+// Tibber Grid Rewards: echter Endpreis hat Vorrang (wo er vorliegt), sonst eigener Tarif
+if (!function_exists('TIBBERGR_GetPriceCurve')) {
+    function TIBBERGR_GetPriceCurve(int $id): array { if ($GLOBALS['TIBBER_THROW']) { throw new RuntimeException('Instanz lädt neu'); } return $GLOBALS['TIBBER_CURVE']; }
+}
+$GLOBALS['TIBBER_THROW'] = false;
+$GLOBALS['INSTANCES']['{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}'] = [777];
+$GLOBALS['TIBBER_CURVE'] = [['start' => ts('2026-09-12 10:00:00'), 'end' => ts('2026-09-12 11:00:00'), 'price' => 31.5, 'basis' => 'endkunde', 'netzentgelt' => 'enthalten', 'level' => null, 'contractVersion' => '1.1']];
+$m->Tick();
+check('Tibber Grid Rewards installiert: 10:00–11:00 sein echter Endpreis (31,5), 11:00 wieder eigener Tarif', $mdAt($m, '2026-09-12 10:00:00') === 31.5 && $mdAt($m, '2026-09-12 10:45:00') === 31.5 && abs($mdAt($m, '2026-09-12 11:00:00') - round(($ec['price'][44] / 10 + 1.0 + 4.997) * 1.19, 4)) < 1e-9);
+check('Statuszeile nennt Tibber Grid Rewards mit Instanz', str_contains(formText(form($m)), '✅ Preis aus Tibber Grid Rewards (#777)'));
+$m->props['UseTibberPrice'] = false;
+$m->ApplyChanges();
+check('Abgewählt: eigener Tarif statt Tibber-Preis', abs($mdAt($m, '2026-09-12 10:00:00') - round(($ec['price'][40] / 10 + 1.0 + 4.997) * 1.19, 4)) < 1e-9);
+$m->props['UseTibberPrice'] = true;
+$GLOBALS['TIBBER_CURVE'][0]['contractVersion'] = '2.0';
+$m->ApplyChanges();
+check('Tibber-Vertrag 2.x: nicht genutzt, sichtbare Meldung „benötigt eine Aktualisierung“', $mdAt($m, '2026-09-12 10:00:00') !== 31.5 && str_contains(formText(form($m)), 'benötigt eine Aktualisierung'));
+$GLOBALS['TIBBER_CURVE'][0]['contractVersion'] = '1.1';
+$GLOBALS['TIBBER_CURVE'][0]['basis'] = 'spot';
+$m->ApplyChanges();
+check('Nur basis „endkunde“ zählt als Endpreis', $mdAt($m, '2026-09-12 10:00:00') !== 31.5);
+$GLOBALS['TIBBER_THROW'] = true;
+$m->ApplyChanges();
+check('Tibber wirft (z. B. lädt neu): kein Absturz, eigener Tarif, Meldung im Formular', $mdAt($m, '2026-09-12 10:00:00') !== null && str_contains(formText(form($m)), 'antwortet nicht'));
+$GLOBALS['TIBBER_THROW'] = false;
+$GLOBALS['INSTANCES'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

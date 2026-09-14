@@ -52,7 +52,7 @@ class NRGSpotPrice extends IPSModule
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.4.0';
+    private const NEWS_VERSION = '0.5.0';
     private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
@@ -76,6 +76,20 @@ class NRGSpotPrice extends IPSModule
     // „taxes“ → Tibber-Endpreis. Kein dokumentierter API-Vertrag — kann sich ändern.
     private const SOURCE_TIBBER = 3;
     private const TIBBER_URL    = 'https://tibber.com/de/api/lookup/price-overview?postalCode=';
+
+    // Tarifmodell für die Energie-Manager-Variable — gleiche Begriffe wie Tibber Grid Rewards
+    // (spot/beschaffung/netzentgelt/steuernAbgaben, vat; abgestimmt 14.09.2026), aber VORWÄRTS
+    // gerechnet: dort wird der Spotpreis als Rest aus Tibbers Endpreis gebildet, das geht nur bei
+    // Tibbers „at cost“-Modell. Bundesweite Umlagen wie dort fest mit Stand — bei einer Änderung
+    // hier UND bei Tibber (TAX_*) nachziehen.
+    private const TAX_STAND       = '06/2026';
+    private const TAX_STROMSTEUER = 2.05;   // ct/kWh netto
+    private const TAX_OFFSHORE    = 0.941;
+    private const TAX_KWK         = 0.446;
+    private const TAX_STROMNEV19  = 1.56;
+    private const VAT_PERCENT     = 19.0;
+    // Tibber Grid Rewards: liefert den echten Tibber-Endkundenpreis des Nutzers (TIBBERGR_GetPriceCurve).
+    private const TIBBERGR_GUID   = '{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}';
 
     private const EC_URL      = 'https://api.energy-charts.info/price';
     private const AWATTAR_URL = [
@@ -104,14 +118,33 @@ class NRGSpotPrice extends IPSModule
 
         $this->RegisterPropertyInteger('Source', self::SOURCE_ENERGYCHARTS);
         $this->RegisterPropertyString('BiddingZone', 'DE-LU');
-        // Nur für die Variable „Marktdaten“ (Symcon Energie Manager): wie Symcons Modul
-        // „Strompreis“ Preis = Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag).
-        // Standard 0 = reiner Börsenpreis — keine Tarifannahme (keine eigene Anlage als Norm).
+        // Bis 0.4: einfache „Strompreis“-Rechnung für die Energie-Manager-Variable. Seit 0.5.0 ohne
+        // Wirkung (ersetzt durch das Tarifmodell unten) — nur weiter registriert, damit bestehende
+        // Instanzen keine entfernte Eigenschaft sehen (Migrationsvergleich, SUITE.md 9e).
         $this->RegisterPropertyFloat('MarketBase', 0.0);
         $this->RegisterPropertyFloat('MarketTax', 0.0);
         $this->RegisterPropertyFloat('MarketSurcharge', 0.0);
         // Nur für die Quelle Tibber; bewusst leer (keine Beispiel-PLZ als Vorgabe).
         $this->RegisterPropertyString('TibberPostalCode', '');
+        // Tarif für die Energie-Manager-Variable (Panel „Symcon Energie Manager & Tarif“). Alles aus
+        // bzw. 0 als Vorgabe: Netzentgelt, Konzessionsabgabe und Aufschlag sind je Netzgebiet,
+        // Gemeinde und Anbieter verschieden — Beispielzahlen einer echten Anlage wären für jeden
+        // anderen falsch (Lehre Tibber 2.8.1, keine eigene Anlage als Norm).
+        $this->RegisterPropertyBoolean('UseTibberPrice', true);
+        $this->RegisterPropertyBoolean('TariffEnabled', false);
+        $this->RegisterPropertyFloat('TariffBeschaffung', 0.0);
+        $this->RegisterPropertyFloat('TariffKonzession', 0.0);
+        $this->RegisterPropertyFloat('NetzArbeitspreis', 0.0);
+        $this->RegisterPropertyBoolean('Modul3Enabled', false);
+        $this->RegisterPropertyFloat('NetzHT', 0.0);
+        $this->RegisterPropertyFloat('NetzST', 0.0);
+        $this->RegisterPropertyFloat('NetzNT', 0.0);
+        // [{From:"HH:MM", To:"HH:MM", Band:"HT|ST|NT", Days:"all|weekday|weekend"}]
+        $this->RegisterPropertyString('NetzWindows', '[]');
+        $this->RegisterPropertyBoolean('Modul3Q1', true);
+        $this->RegisterPropertyBoolean('Modul3Q2', true);
+        $this->RegisterPropertyBoolean('Modul3Q3', true);
+        $this->RegisterPropertyBoolean('Modul3Q4', true);
 
         // Zwischenspeicher bewusst als Attribut: geht er bei einem Modul-Resync
         // verloren, holt der nächste Abruf einfach alles neu.
@@ -313,6 +346,7 @@ class NRGSpotPrice extends IPSModule
         }
         $this->UpdateFormField('FetchStatus', 'caption', $this->fetchStatusLine());
         $this->UpdateFormField('PriceSummary', 'caption', $this->priceSummary());
+        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->marketSourceStatus());
         return $text;
     }
 
@@ -911,16 +945,18 @@ class NRGSpotPrice extends IPSModule
 
     /**
      * Inhalt der Variable „Marktdaten (Energie Manager)“ im Format von Symcons Modul
-     * „Strompreis“: [{"start": Unix, "end": Unix, "price": ct/kWh}, …], ab der laufenden
-     * Viertelstunde höchstens 24 Stunden (wie dort). Preis = Grundpreis + Börsenpreis ×
-     * (1 + Steuer %) × (1 + Aufschlag %) — gleiche Rechnung wie „Strompreis“, Standard 0 =
-     * reiner Börsenpreis. Nur diese Variable rechnet so; der Verbund-Vertrag bleibt netto.
+     * „Strompreis“: [{"start": Unix, "end": Unix, "price": ct/kWh brutto}, …], ab der laufenden
+     * Viertelstunde höchstens 24 Stunden (wie dort). Preis je Viertelstunde, erste Quelle gewinnt:
+     *   1. Tibber Grid Rewards installiert (und nicht abgewählt): der echte Tibber-Endpreis,
+     *   2. eigener Tarif eingeschaltet: (Börsenpreis + Beschaffung + Netzentgelt + Steuern/Abgaben) × MwSt,
+     *   3. Quelle Tibber-Preisübersicht: Tibbers Endpreis für die Postleitzahl,
+     *   4. sonst der reine Börsenpreis.
+     * Nur diese Variable rechnet so; Vertrag und übrige Variablen bleiben der reine Börsenpreis.
      */
     private function marketDataJson(int $now): string
     {
-        $base = (float)$this->ReadPropertyFloat('MarketBase');
-        $tax = (float)$this->ReadPropertyFloat('MarketTax');
-        $surcharge = (float)$this->ReadPropertyFloat('MarketSurcharge');
+        $tibber = $this->tibberGridRewardsInfo()['curve'];
+        $tariff = (bool)$this->ReadPropertyBoolean('TariffEnabled');
         $out = [];
         foreach ($this->cache()['slots'] ?? [] as $s) {
             if ($s['end'] <= $now) {
@@ -929,15 +965,137 @@ class NRGSpotPrice extends IPSModule
             if (count($out) >= 96) {
                 break;
             }
-            $out[] = [
-                'start' => (int)$s['start'],
-                'end'   => (int)$s['end'],
-                // Quelle Tibber: Tibbers Endpreis inkl. MwSt für die PLZ (wie „Strompreis“), ohne Tarif-Felder.
-                'price' => isset($s['retail']) ? (float)$s['retail']
-                    : round($base + (float)$s['price'] * (1 + $tax / 100) * ((100 + $surcharge) / 100), 4),
-            ];
+            $price = $this->tibberPriceAt($tibber, (int)$s['start']);
+            if ($price === null) {
+                $price = $tariff ? $this->tariffPrice($s) : (isset($s['retail']) ? (float)$s['retail'] : (float)$s['price']);
+            }
+            $out[] = ['start' => (int)$s['start'], 'end' => (int)$s['end'], 'price' => round($price, 4)];
         }
         return json_encode($out);
+    }
+
+    /**
+     * Endkundenpreis von Tibber Grid Rewards, falls installiert und nicht abgewählt — Tibber kennt
+     * den echten Preis des Nutzers genauer als jede eigene Rechnung (Empfehlung der Tibber-Sitzung,
+     * 14.09.2026). Nur Slots mit basis 'endkunde', nur Vertrags-Hauptversion 1 (Update-Meldepflicht).
+     * Rückgabe: ['id' => Instanz, 'curve' => [[start, end, price brutto ct/kWh], …], 'problem' => Text].
+     */
+    private function tibberGridRewardsInfo(): array
+    {
+        $info = ['id' => 0, 'curve' => [], 'problem' => ''];
+        if (!$this->ReadPropertyBoolean('UseTibberPrice') || !function_exists('TIBBERGR_GetPriceCurve')) {
+            return $info;
+        }
+        $list = IPS_GetInstanceListByModuleID(self::TIBBERGR_GUID);
+        if (count($list) === 0) {
+            return $info;
+        }
+        $info['id'] = (int)$list[0];
+        try {
+            $curve = TIBBERGR_GetPriceCurve($info['id']);
+        } catch (Throwable $e) {
+            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') antwortet nicht: ' . $e->getMessage();
+            return $info;
+        }
+        if (!is_array($curve) || count($curve) === 0) {
+            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') liefert gerade keine Preise.';
+            return $info;
+        }
+        $version = (string)($curve[0]['contractVersion'] ?? '1.0');
+        if ((int)explode('.', $version)[0] !== 1) {
+            $info['problem'] = 'Dieses Modul benötigt eine Aktualisierung, um Tibber Grid Rewards zu nutzen (Vertrag 1.x erwartet, ' . $version . ' geliefert).';
+            return $info;
+        }
+        foreach ($curve as $c) {
+            if (!is_array($c) || !is_numeric($c['start'] ?? null) || !is_numeric($c['end'] ?? null) || !is_numeric($c['price'] ?? null)
+                || ($c['basis'] ?? 'endkunde') !== 'endkunde') {
+                continue;
+            }
+            $info['curve'][] = [(int)$c['start'], (int)$c['end'], (float)$c['price']];
+        }
+        return $info;
+    }
+
+    private function tibberPriceAt(array $curve, int $t): ?float
+    {
+        foreach ($curve as [$start, $end, $price]) {
+            if ($start <= $t && $t < $end) {
+                return $price;
+            }
+        }
+        return null;
+    }
+
+    /** Eigener Tarif, vorwärts: (spot + beschaffung + netzentgelt + steuernAbgaben) × (1 + MwSt), ct/kWh brutto. */
+    private function tariffPrice(array $slot): float
+    {
+        $net = (float)$slot['price'] + (float)$this->ReadPropertyFloat('TariffBeschaffung')
+            + $this->netzentgeltAt((int)$slot['start']) + $this->steuernAbgaben();
+        return $net * (1 + self::VAT_PERCENT / 100);
+    }
+
+    private function steuernAbgaben(): float
+    {
+        return (float)$this->ReadPropertyFloat('TariffKonzession')
+            + self::TAX_STROMSTEUER + self::TAX_OFFSHORE + self::TAX_KWK + self::TAX_STROMNEV19;
+    }
+
+    /**
+     * Netzentgelt (ct/kWh netto) für einen Zeitpunkt: § 14a Modul 3 (HT/ST/NT nach Zeitfenstern),
+     * wenn eingeschaltet und im Kalenderquartal gültig — Fenster je „alle Tage“, „Mo–Fr“ oder
+     * „Sa–So“ (Wochenende war bei Tibber eine offene Lücke). Sonst, und außerhalb jedes Fensters,
+     * der Arbeitspreis. „Bis 00:00“ heißt Tagesende; Fenster über Mitternacht sind erlaubt.
+     */
+    private function netzentgeltAt(int $t): float
+    {
+        $arbeitspreis = (float)$this->ReadPropertyFloat('NetzArbeitspreis');
+        if (!$this->ReadPropertyBoolean('Modul3Enabled') || !$this->ReadPropertyBoolean('Modul3Q' . (int)ceil((int)date('n', $t) / 3))) {
+            return $arbeitspreis;
+        }
+        $windows = json_decode((string)$this->ReadPropertyString('NetzWindows'), true);
+        $minute = (int)date('G', $t) * 60 + (int)date('i', $t);
+        $weekend = (int)date('N', $t) >= 6;
+        foreach (is_array($windows) ? $windows : [] as $w) {
+            $days = (string)($w['Days'] ?? 'all');
+            if (($days === 'weekday' && $weekend) || ($days === 'weekend' && !$weekend)) {
+                continue;
+            }
+            $from = $this->minutesOf((string)($w['From'] ?? ''));
+            $to = $this->minutesOf((string)($w['To'] ?? ''));
+            if ($from === null || $to === null) {
+                continue;
+            }
+            if ($to === 0) {
+                $to = 1440;
+            }
+            $hit = $from <= $to ? ($minute >= $from && $minute < $to) : ($minute >= $from || $minute < $to);
+            if ($hit) {
+                $band = ['HT' => 'NetzHT', 'ST' => 'NetzST', 'NT' => 'NetzNT'][(string)($w['Band'] ?? '')] ?? '';
+                return $band !== '' ? (float)$this->ReadPropertyFloat($band) : $arbeitspreis;
+            }
+        }
+        return $arbeitspreis;
+    }
+
+    private function minutesOf(string $hhmm): ?int
+    {
+        return preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', trim($hhmm), $m) ? (int)$m[1] * 60 + (int)$m[2] : null;
+    }
+
+    /** Eine Zeile fürs Formular: woher der Preis in „Marktdaten (Energie Manager)“ gerade kommt. */
+    private function marketSourceStatus(): string
+    {
+        $info = $this->tibberGridRewardsInfo();
+        $tariff = (bool)$this->ReadPropertyBoolean('TariffEnabled');
+        $fallback = $tariff ? 'deinem eigenen Tarif'
+            : ($this->source() === self::SOURCE_TIBBER ? 'Tibbers Endpreis aus der Tibber-Preisübersicht (PLZ ' . $this->postalCode() . ')' : 'dem reinen Börsenpreis');
+        if (count($info['curve']) > 0) {
+            return '✅ Preis aus Tibber Grid Rewards (#' . $info['id'] . ') — dein echter Tibber-Endpreis, soweit Tibber ihn schon kennt; sonst aus ' . $fallback . '.';
+        }
+        $line = $tariff ? '🧾 Preis aus deinem eigenen Tarif (Börsenpreis + Aufschlag + Netzentgelt + Steuern und Abgaben, inkl. 19 % MwSt).'
+            : ($this->source() === self::SOURCE_TIBBER ? '🏷 Endpreis aus der Tibber-Preisübersicht für PLZ ' . $this->postalCode() . ' (inkl. MwSt).'
+            : 'ℹ️ Reiner Börsenpreis (netto) — für einen echten Endpreis unten den eigenen Tarif einschalten.');
+        return ($info['problem'] !== '' ? '⚠️ ' . $info['problem'] . "\n" : '') . $line;
     }
 
     private function entsoeTokenStatus(): string
@@ -1180,7 +1338,8 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
             'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
             'items' => [
-                ['type' => 'Label', 'caption' => '• Neue Quelle „Tibber-Preisübersicht“: ohne Tibber-Konto, nur mit Postleitzahl. Der Symcon Energie Manager bekommt damit Tibbers Endpreis für deine Postleitzahl, alle anderen Werte bleiben der reine Börsenpreis.'],
+                ['type' => 'Label', 'caption' => '• Neuer Tarif für den Symcon Energie Manager (Panel „Symcon Energie Manager & Tarif“): Ist Tibber Grid Rewards installiert, kommt dein echter Tibber-Preis von dort. Sonst rechnet das Modul deinen Endpreis aus Börsenpreis, Aufschlag, Netzentgelt (auch zeitvariabel nach § 14a Modul 3, getrennt für Werktage und Wochenende), Konzessionsabgabe, Umlagen und Mehrwertsteuer. Die bisherigen Felder Grundpreis/Steuer/Aufschlag entfallen.'],
+                ['type' => 'Label', 'caption' => '• Seit 0.4: Quelle „Tibber-Preisübersicht“: ohne Tibber-Konto, nur mit Postleitzahl. Der Symcon Energie Manager bekommt damit Tibbers Endpreis für deine Postleitzahl, alle anderen Werte bleiben der reine Börsenpreis.'],
                 ['type' => 'Label', 'caption' => '• Seit 0.3: Quelle „EPEX Spot (über ENTSO-E)“: die Börsenergebnisse der EPEX Spot in Viertelstunden, mit kostenlosem ENTSO-E-Zugangsschlüssel (Panel „Datenquelle“).'],
                 ['type' => 'Label', 'caption' => '• Symcon Energie Manager: Die neue Variable „Marktdaten (Energie Manager)“ liefert die Preise im Format von Symcons Modul „Strompreis“ — im Energie Manager unter „Energiepreise“ auswählen. Optional Grundpreis, Steuer und Aufschlag deines Tarifs (Panel „Symcon Energie Manager“).'],
                 ['type' => 'Label', 'caption' => '• Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).'],
@@ -1204,7 +1363,7 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
                 ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
                 ['type' => 'Label', 'caption' => 'Anzeige: Die Preiskurve für heute und morgen mit den negativen Viertelstunden zeigt das NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis"). Die Variablen lassen sich zusätzlich per Verknüpfung im Objektbaum in den Bereich des WebFronts legen.'],
-                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“. Grundpreis, Steuer und Aufschlag wirken nur auf diese Variable; bei der Quelle Tibber steht dort stattdessen Tibbers Endpreis inkl. Mehrwertsteuer für die Postleitzahl.'],
+                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“, aber mit deinem Endpreis: echter Tibber-Preis aus Tibber Grid Rewards, sonst dein eigener Tarif, sonst Tibbers Preis für deine Postleitzahl (Quelle Tibber-Preisübersicht), sonst der reine Börsenpreis. Welcher gerade gilt, zeigt die Statuszeile im Panel „Symcon Energie Manager & Tarif“.'],
                 ['type' => 'Label', 'caption' => 'Skripte und andere Module: SPOT_GetPriceCurve(<InstanzID>) liefert eine Liste aller Viertelstunden von heute und (sobald veröffentlicht) morgen — je Eintrag start, end (exklusiv, Unixzeit), price (ct/kWh), basis „spot", netzentgelt „fehlt", level (immer leer), quelle, aufloesung (900 = Viertelstunde, 3600 = aus Stundenwert verteilt) und contractVersion. Lücken sind möglich, fehlende Werte stehen nie als 0 drin.'],
                 ['type' => 'Label', 'caption' => 'SPOT_GetPriceHistory(<InstanzID>, von, bis) liefert dieselben Einträge für einen beliebigen Zeitraum (Unixzeit, bis exklusiv, höchstens 400 Tage). Vergangene Viertelstunden stammen aus dem Archiv (quelle „archiv", Stufenverlauf: ein Wert gilt bis zum nächsten, höchstens 12 Stunden — längere Lücken, z. B. während Symcon aus war, bleiben leer); vor dem ersten Archiveintrag gibt es keine Einträge.'],
                 ['type' => 'Label', 'caption' => 'SPOT_Update(<InstanzID>) ruft sofort ab und liefert das Ergebnis als Text. Zeitumstellung: Tage mit 23 bzw. 25 Stunden haben 92 bzw. 100 Viertelstunden — alle Zeitstempel sind echte Unixzeit, nichts wird aus festen Tageslängen errechnet.'],
@@ -1283,24 +1442,65 @@ class NRGSpotPrice extends IPSModule
         ];
     }
 
-    private function EnergyManagerPanel(): array
+    private function TariffPanel(): array
     {
         $vid = IPS_GetObjectIDByIdent('MarketData', $this->InstanceID);
+        $ct = function (float $v) {
+            return number_format($v, 3, ',', '.');
+        };
+        $quarter = function (int $q, string $months) {
+            return ['type' => 'CheckBox', 'name' => 'Modul3Q' . $q, 'caption' => 'Q' . $q . ' (' . $months . ')'];
+        };
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
-            'caption' => '⚡  Symcon Energie Manager',
+            'caption' => '⚡  Symcon Energie Manager & Tarif',
             'items' => [
-                ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach diesen Preisen.'],
-                ['type' => 'Label', 'caption' => 'Standard (alle Felder 0): reiner Börsenpreis, netto. Hast du einen dynamischen Tarif, der sich nach dem Börsenpreis richtet, kannst du ihn hier nachbilden — gerechnet wird wie bei „Strompreis“: Grundpreis + Börsenpreis × (1 + Steuer) × (1 + Aufschlag). Das wirkt nur auf diese Variable, alle anderen Werte bleiben der reine Börsenpreis.'],
-                ['type' => 'Label', 'visible' => $this->source() === self::SOURCE_TIBBER, 'caption' => 'ℹ️ Quelle Tibber: Die Variable enthält Tibbers Endpreis inkl. Mehrwertsteuer für deine Postleitzahl — die drei Felder darunter werden dann nicht verwendet.'],
-                ['type' => 'NumberSpinner', 'name' => 'MarketBase', 'caption' => 'Grundpreis je kWh (z. B. Netzentgelt, Abgaben)', 'suffix' => ' ct/kWh', 'digits' => 2, 'minimum' => 0, 'maximum' => 100],
-                ['type' => 'NumberSpinner', 'name' => 'MarketTax', 'caption' => 'Steuer auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 50],
-                ['type' => 'NumberSpinner', 'name' => 'MarketSurcharge', 'caption' => 'Aufschlag des Anbieters auf den Börsenpreis', 'suffix' => ' %', 'digits' => 1, 'minimum' => 0, 'maximum' => 100],
+                ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach deinem Endpreis.'],
+                ['type' => 'Label', 'name' => 'MarketSourceStatus', 'caption' => $this->marketSourceStatus()],
+                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Ist Tibber Grid Rewards installiert: dessen echten Tibber-Endpreis verwenden (empfohlen für Tibber-Kunden)'],
+                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen (z. B. anderer dynamischer Tarif)'],
+                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'caption' => 'Aufschlag deines Anbieters auf den Börsenpreis (Beschaffung, Marge)', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => -20, 'maximum' => 100],
+                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'caption' => 'Konzessionsabgabe deiner Gemeinde', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => 0, 'maximum' => 5],
+                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                ['type' => 'Label', 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
+                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'caption' => 'Zeitvariables Netzentgelt nach § 14a Modul 3'],
+                ['type' => 'RowLayout', 'items' => [
+                    ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                    ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                    ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                ]],
+                [
+                    'type' => 'List', 'name' => 'NetzWindows', 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
+                    'columns' => [
+                        ['caption' => 'Von', 'name' => 'From', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
+                        ['caption' => 'Bis', 'name' => 'To', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
+                        ['caption' => 'Stufe', 'name' => 'Band', 'width' => '190px', 'add' => 'ST', 'edit' => ['type' => 'Select', 'options' => [
+                            ['caption' => 'Hochtarif (HT)', 'value' => 'HT'],
+                            ['caption' => 'Standardtarif (ST)', 'value' => 'ST'],
+                            ['caption' => 'Niedertarif (NT)', 'value' => 'NT'],
+                        ]]],
+                        ['caption' => 'Tage', 'name' => 'Days', 'width' => 'auto', 'add' => 'all', 'edit' => ['type' => 'Select', 'options' => [
+                            ['caption' => 'Alle Tage', 'value' => 'all'],
+                            ['caption' => 'Montag–Freitag', 'value' => 'weekday'],
+                            ['caption' => 'Samstag und Sonntag', 'value' => 'weekend'],
+                        ]]],
+                    ],
+                ],
+                ['type' => 'RowLayout', 'items' => [$quarter(1, 'Jan–Mär'), $quarter(2, 'Apr–Jun'), $quarter(3, 'Jul–Sep'), $quarter(4, 'Okt–Dez')]],
+                ['type' => 'Label', 'caption' => 'Außerhalb der Zeitfenster und in Quartalen ohne Häkchen gilt der Arbeitspreis. „Bis 00:00“ heißt Tagesende, Fenster über Mitternacht sind erlaubt. Feiertage kennt das Modul nicht — sie zählen wie ihr Wochentag.'],
+                ['type' => 'PopupButton', 'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?', 'width' => '500px', 'popup' => [
+                    'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?',
+                    'items' => [
+                        ['type' => 'Label', 'caption' => 'Netzentgelt und die § 14a-Modul-3-Zeitfenster stehen im Preisblatt deines Netzbetreibers (auf dessen Webseite, meist „Netzentgelte“ bzw. „Preisblatt Netznutzung“) und auf deiner Stromrechnung. Den Netzbetreiber findest du auf der Rechnung oder über deine Postleitzahl.'],
+                        ['type' => 'Label', 'caption' => 'Die Konzessionsabgabe hängt von deiner Gemeinde ab (in Deutschland meist zwischen 1,32 und 2,39 ct/kWh netto) und steht ebenfalls auf der Rechnung. Den Aufschlag nennt dein Anbieter in seinen Tarifbedingungen.'],
+                        ['type' => 'Label', 'caption' => 'Alle Werte netto eintragen — die Mehrwertsteuer rechnet das Modul selbst hinzu. Ist Tibber Grid Rewards installiert, brauchst du hier nichts einzutragen: dann kommt dein echter Tibber-Preis von dort.'],
+                    ],
+                ]],
                 ['type' => 'PopupButton', 'caption' => 'Wie binde ich den Energie Manager an?', 'width' => '500px', 'popup' => [
                     'caption' => 'Wie binde ich den Energie Manager an?',
                     'items' => [
                         ['type' => 'Label', 'caption' => '1. Im Symcon Energie Manager das Feld „Energiepreise“ öffnen und die Variable „Marktdaten (Energie Manager)“ dieser Instanz auswählen.'],
-                        ['type' => 'Label', 'caption' => '2. Sollen Geräte nach deinem echten Bezugspreis geplant werden, oben Grundpreis, Steuer und Aufschlag deines dynamischen Tarifs eintragen. Für reine Börsenpreis-Signale (z. B. negative Preise) alles auf 0 lassen.'],
+                        ['type' => 'Label', 'caption' => '2. Woher der Preis kommt, zeigt die Statuszeile oben: echter Tibber-Preis (Tibber Grid Rewards), dein eigener Tarif, Tibbers Preis für deine Postleitzahl oder der reine Börsenpreis.'],
                         ['type' => 'Label', 'caption' => '3. Die Variable wird zu jeder Viertelstunde und nach jedem Abruf neu geschrieben; vergangene Viertelstunden fallen heraus.'],
                     ],
                 ]],
@@ -1352,7 +1552,7 @@ class NRGSpotPrice extends IPSModule
 
         $elements = array_values(array_filter(array_merge(
             [$this->PurposeIntro(), $this->NewsBanner(), $this->DocPanel()],
-            [$this->SourcePanel(), $this->PricePanel(), $this->EnergyManagerPanel()],
+            [$this->SourcePanel(), $this->PricePanel(), $this->TariffPanel()],
             [$this->ForumHint(), $this->LicenseHint()]
         )));
 

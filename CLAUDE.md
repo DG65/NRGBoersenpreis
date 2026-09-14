@@ -85,6 +85,17 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
   lückenlose Folge (vorig + Raster = gleiche Wanduhrzeit) vor mktime() — sonst landet die
   doppelte 02:xx-Stunde falsch. Nur DE-LU. `retail` bewusst nicht im Verbund-Vertrag
   (Endpreis einer PLZ ≠ Vertrag des Nutzers; EMS nimmt Bezugspreis nur aus Tibber-Modul/manuell).
+- **Tarif für den Energie Manager** (seit 0.5.0, Dietmar „wie in Tibber anpacken“, mit der
+  Tibber-Sitzung abgestimmt 14.09.2026): gleiche Begriffe wie `TIBBERGR_GetPriceCurve.components`
+  (spot/beschaffung/netzentgelt/steuernAbgaben, vat), aber VORWÄRTS gerechnet — Tibbers
+  „spot als Rest“ geht nur bei Tibbers at-cost-Modell. Keine Abhängigkeit: Tibber Grid Rewards
+  wird nur optional gefragt (`tibberGridRewardsInfo()`, function_exists + try/catch, nur
+  basis=endkunde, nur Major 1) und hat dann Vorrang (Tibber kennt den echten Preis; vermeidet
+  doppelte Netzentgelt-Eingabe). Umlagen `TAX_*` fest mit Stand wie bei Tibber — bei Änderung
+  BEIDE Module nachziehen. Modul-3-Fenster mit `Days` (all/weekday/weekend) — bei Tibber offene
+  Lücke, hier gelöst; Feiertage nicht. Offen (Tibber-Hinweis): gemeinsames Komponenten-Vokabular
+  ggf. über EMS/SUITE.md verbundweit formalisieren. Alte Properties MarketBase/Tax/Surcharge
+  seit 0.5.0 ohne Wirkung, nur registriert (kein Migrationsbruch).
 - **Symcon Energie Manager** (seit 0.3.0): Variable `MarketData` im Format von
   symcon/Strompreis (`NormalizeAndReduce`): `[{start,end,price ct/kWh}]`, ab laufender
   Viertelstunde ≤ 96 Einträge (24 h), Preis = Grundpreis + spot × (1+Steuer) × (1+Aufschlag),
