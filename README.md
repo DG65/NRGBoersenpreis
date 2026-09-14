@@ -84,8 +84,11 @@ ihr Wochentag.
 | `NegativeNow` | Negativer Börsenpreis jetzt | Bool (Ja/Nein) |
 | `NextNegativeStart` | Nächste negative Viertelstunde | Integer, Unixzeit (0 = keine bekannt; die laufende zählt mit) |
 | `TomorrowAvailable` | Preise für morgen veröffentlicht | Bool (Ja/Nein) |
+| `MarketData` | Marktdaten (Energie Manager) | String, JSON `[{start, end, price}]` — Endpreis für den Symcon Energie Manager, siehe oben |
 
-Für einen Verlauf einfach die Archivierung von „Börsenpreis jetzt" einschalten.
+„Börsenpreis jetzt" wird archiviert — das Modul schaltet das bei der Einrichtung einmal selbst
+ein (daraus kommt der Rückblick in `SPOT_GetPriceHistory`); wer es abschaltet, verliert nur
+diesen Rückblick.
 
 ## Vertrag für Skripte und andere Module
 
@@ -96,7 +99,7 @@ $curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
 //    'quelle' => 'energy-charts'|'entsoe'|'tibber'|'awattar',
 //    'aufloesung' => 900|3600,          // Sekunden je Originalwert
-//    'contractVersion' => '1.0' ], …]
+//    'contractVersion' => '1.1' ], …]
 ```
 
 - Liste aufsteigend nach `start`, heute + morgen (sobald veröffentlicht), Viertelstunden-Raster.
@@ -150,7 +153,8 @@ nutzbar, für den gewerblichen Einsatz ist eine gesonderte Lizenz vom Rechteinha
 (Kontakt: dietmar@gureth.eu). Spenden willkommen: [paypal.me/DietmarGureth](https://paypal.me/DietmarGureth).
 
 Preisdaten: Energy-Charts.info (Fraunhofer ISE), Daten Bundesnetzagentur | SMARD.de, CC BY 4.0;
-ENTSO-E Transparency Platform (EPEX-Spot-Day-Ahead-Ergebnisse); aWATTar GmbH.
+ENTSO-E Transparency Platform (EPEX-Spot-Day-Ahead-Ergebnisse); Tibber (öffentliche
+Preisübersicht); aWATTar GmbH.
 
 ---
 

@@ -2,9 +2,11 @@
 
 ## Einordnung
 
-- **Marke NRG-Stack.** Anzeigename „NRG-Stack Börsenpreis", Klasse/Modulname `Boersenpreis`,
-  Präfix `SPOT_`, Repo `DG65/NRGBoersenpreis` (kein Alt-Name, keine GitHub-Weiterleitung betroffen).
-  Namen von Dietmar am 13.09.2026 freigegeben; ab der ersten echten Instanz eingefroren
+- **Marke NRG-Stack.** Anzeigename „NRG-Stack Börsenpreis", Klasse/Modulname/Ordner
+  `Boersenpreis`, Präfix `SPOT_`, Repo `DG65/NRGBoersenpreis`. **Am 14.09.2026 umbenannt**
+  (Dietmar „überall Börsenpreis“) aus `NRGSpotPrice`/Repo `DG65/NRGSpotPrice` — GitHub leitet
+  weiter, der alte Repo-Name wird NIE wiederverwendet. Präfix `SPOT_` und Modul-GUID bewusst
+  unverändert (EMS/Dashboard-Code unberührt). Ab dem Store-Start eingefroren
   (Kernel-Reflection auf den Klassennamen).
 - **Kickoff:** `/Users/dietmar/Nextcloud/Claude/Boersenpreis-Kickoff.md` (EMS-Sitzung,
   13.09.2026). Verbund-Konventionen: `SUITE.md` (nur lokal unter `Nextcloud/Claude/`).
@@ -27,7 +29,8 @@ Dietmar 13.09.2026 („über das Archiv").
 
 Liste aufsteigend, je Slot: `start` (inkl.), `end` (EXKLUSIV), `price` (ct/kWh netto, negativ
 erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
-(`energy-charts`/`awattar`), `aufloesung` (900/3600), `contractVersion`. Nur additiv erweitern
+(`energy-charts`/`entsoe`/`tibber`/`awattar`, im Rückblick zusätzlich `archiv`), `aufloesung`
+(900/3600), `contractVersion`. Nur additiv erweitern
 (neue Felder → Minor). Keine Parameter, keine PHP-Standardwerte (Stolperstein 8/20).
 
 ## Kernmechanik — nicht verhandelbar
@@ -48,11 +51,18 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
 7. **Fehler:** Speicher bleibt, `LastError` fürs Formular, `IPS_LogMessage()` nur beim ersten
    Auftreten desselben Fehlers (kein Log-Sturm bei 15-min-Wiederholung). **Kein Warnstatus**
    dafür (SUITE.md 9d, seit 0.2.1): Status nur 102 (Preis für jetzt da) oder 201 (fehlt).
-10. **Archiv tageweise** (SUITE.md 9g): `archivedSlots()` fragt je Kalendertag ab, den Vorwert
-    nur im 12-h-Fenster, nie ab Zeitstempel 0. `false` = kein Logging → keine Historie.
-8. **Quellen-/Zonenwechsel verwirft den Speicher** — keine gemischte Kurve.
+8. **Quellen-/Zonen-/PLZ-Wechsel verwirft den Speicher** — keine gemischte Kurve.
 9. **Sprachregel:** alles Nutzersichtbare deutsch, Datum TT.MM.JJJJ (Store-Checkliste 9b),
    keine eigene Anlage als Norm (Zone ist Einstellung, keine Anlagendaten im Modul).
+10. **Archiv tageweise** (SUITE.md 9g): `archivedSlots()` fragt je Kalendertag ab, den Vorwert
+    nur im 12-h-Fenster, nie ab Zeitstempel 0. `false` = kein Logging → keine Historie.
+11. **Formular** (Live-Funde 14.09.2026): Labels sind einfache Labels (Symcon bricht selbst über
+    die volle Breite um — kein harter Umbruch, 0.5.1 war falsch). Eingabefelder nie nebeneinander
+    (RowLayout erzwingt auf schmalen Bildschirmen Überbreite), Breite `FIELD_WIDTH` 400 px,
+    Beschriftung ≤ 26 Zeichen (sie steht IM Feld), Erklärung als Label. Kein negatives
+    `minimum` bei NumberSpinnern (Konsole zeigte für 0 das Minimum an). „Wozu dieses Modul?“
+    bleibt unsichtbar im Formular, Knopf im Doku-Panel blendet es wieder ein; Ausblenden über
+    Instanzen geteilt (`GetDismissState`/`AdoptDismissState`, gibt selbst nie weiter).
 
 ## Quellen (Stand 13.09.2026, selbst geprüft)
 
@@ -98,9 +108,10 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
   seit 0.5.0 ohne Wirkung, nur registriert (kein Migrationsbruch).
 - **Symcon Energie Manager** (seit 0.3.0): Variable `MarketData` im Format von
   symcon/Strompreis (`NormalizeAndReduce`): `[{start,end,price ct/kWh}]`, ab laufender
-  Viertelstunde ≤ 96 Einträge (24 h), Preis = Grundpreis + spot × (1+Steuer) × (1+Aufschlag),
-  Properties `MarketBase/MarketTax/MarketSurcharge` Standard 0. Format dort nicht dokumentiert —
-  Referenz ist der Quellcode von symcon/Strompreis (Commit 75f71d6, 08.07.2026).
+  Viertelstunde ≤ 96 Einträge (24 h). Preis seit 0.5.0 nach der Reihenfolge Tibber Grid Rewards →
+  eigener Tarif → Tibber-Preisübersicht → reiner Börsenpreis (siehe oben); die einfache
+  „Strompreis“-Rechnung aus 0.3/0.4 ist entfallen. Format dort nicht dokumentiert — Referenz ist
+  der Quellcode von symcon/Strompreis (Commit 75f71d6, 08.07.2026).
 
 ## Prüfen
 
@@ -129,7 +140,8 @@ lauffähiges Modul trägt (`gh repo edit DG65/NRGBoersenpreis --default-branch m
 
 ## Roadmap / bewusst nicht drin
 
-- ENTSO-E als dritte Quelle (Token-Konto nötig, deshalb nicht Standard).
+- ENTSO-E ist seit 0.3.0 Quelle, aber nicht Standard (Token-Konto nötig); Live-Test mit echtem
+  Schlüssel steht aus.
 - Automatischer Quellenwechsel bei Ausfall (bewusst nicht: gemischte Auflösungen in einer Kurve).
 - Keine Einstufung (`level`) und kein Endkundenpreis — beides Sache des Konsumenten bzw. Tibbers.
 - **Keine eigene Kachel** (Dietmar 13.09.2026): Die Anzeige der Preiskurve (heute/morgen,

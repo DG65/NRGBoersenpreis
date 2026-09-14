@@ -17,6 +17,11 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   wieder einfache Labels wie in allen Verbund-Modulen, Symcon bricht sie selbst um. Die Überbreite
   auf schmalen Bildschirmen kam von nebeneinander stehenden Eingabefeldern (Hoch-/Standard-/
   Niedertarif, ENTSO-E-Schlüssel + Knopf): jetzt untereinander, Feldbreite 400 px.
+- Doku- und Hilfetexte vor dem Store-Start durchgesehen (Bitte EMS/Dietmar): „Neu in Version“
+  ohne veraltete Grundpreis/Steuer/Aufschlag-Zeile und mit den 0.6-Neuerungen, Variablenliste im
+  Doku-Panel und README um „Marktdaten (Energie Manager)“ ergänzt, README-Hinweis zur Archivierung
+  aktualisiert (schaltet das Modul selbst ein), „Wozu dieses Modul?“ nennt den Nutzen ohne EMS
+  (Symcon Energie Manager).
 
 ## [0.5.1] - 2026-09-14
 
