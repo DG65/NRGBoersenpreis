@@ -3,6 +3,21 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.6.0] - 2026-09-14
+
+### Changed
+- **Umbenannt auf „Börsenpreis“** (Dietmar): Repo `DG65/NRGBoersenpreis` (vormals `NRGSpotPrice` —
+  der alte Name wird nie wiederverwendet, GitHub leitet weiter), Klasse/Modulname `Boersenpreis`,
+  Modulordner `Boersenpreis/`. **Unverändert:** Modul-GUID, Präfix `SPOT_` und alle Verträge — EMS,
+  Dashboard und Tibber finden das Modul weiter.
+
+### Fixed
+- Texte wieder über die volle Formularbreite (Dietmar: „in jedem Modul über die komplette
+  Formularbreite“). Der harte Umbruch nach 80 Zeichen aus 0.5.1 war der falsche Weg — Labels sind
+  wieder einfache Labels wie in allen Verbund-Modulen, Symcon bricht sie selbst um. Die Überbreite
+  auf schmalen Bildschirmen kam von nebeneinander stehenden Eingabefeldern (Hoch-/Standard-/
+  Niedertarif, ENTSO-E-Schlüssel + Knopf): jetzt untereinander, Feldbreite 400 px.
+
 ## [0.5.1] - 2026-09-14
 
 ### Fixed

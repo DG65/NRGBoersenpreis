@@ -126,9 +126,9 @@ class IPSModule
 }
 
 // SPOT_TEST_MODULE: absichtlich verfälschte Modulkopie prüfen lassen (Gegenprobe: Prüfstand wird rot).
-require getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/NRGSpotPrice/module.php';
+require getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php';
 
-class SpotTest extends NRGSpotPrice
+class SpotTest extends Boersenpreis
 {
     protected function now(): int { return $GLOBALS['CLOCK']; }
     protected function httpGet(string $url): array
@@ -137,7 +137,7 @@ class SpotTest extends NRGSpotPrice
         return array_shift($GLOBALS['HTTP']) ?? ['status' => 0, 'headers' => [], 'body' => '', 'error' => 'kein Testfall hinterlegt'];
     }
     /** Private Helfer für Einzelprüfungen aufrufen. */
-    public function call(string $method, ...$args) { return (new ReflectionMethod(NRGSpotPrice::class, $method))->invokeArgs($this, $args); }
+    public function call(string $method, ...$args) { return (new ReflectionMethod(Boersenpreis::class, $method))->invokeArgs($this, $args); }
 }
 
 $fails = 0;
@@ -470,9 +470,16 @@ $walkL = function (array $items) use (&$walkL, &$labels) {
 };
 $walkL(form($m3f)['elements']);
 $walkL(form($m)['elements']);
-$long = [];
-foreach ($labels as $l) { foreach (explode("\n", $l) as $line) { if (mb_strlen($line) > 80) { $long[] = $line; } } }
-check('Jede Label-Zeile ≤ 80 Zeichen (Symcon bricht Labels nicht selbst um) — ' . count($labels) . ' Labels', count($labels) > 30 && count($long) === 0, implode(' | ', array_slice($long, 0, 3)));
+// Live-Funde 14.09.2026: Labels sind einfache Labels über die volle Breite (Symcon bricht selbst
+// um, wie in allen Verbund-Modulen) — kein harter Umbruch. Überbreite auf schmalen Bildschirmen
+// kam von nebeneinander stehenden Eingabefeldern → keine RowLayout mit Eingabefeldern.
+$rows = [];
+$walkR = function (array $items) use (&$walkR, &$rows) { foreach ($items as $it) { if (($it['type'] ?? '') === 'RowLayout') { $rows[] = $it; } if (isset($it['items'])) { $walkR($it['items']); } } };
+$walkR(form($m3f)['elements']);
+$rowInputs = array_filter($rows, fn($r) => count(array_filter($r['items'], fn($i) => in_array($i['type'] ?? '', ['Select', 'NumberSpinner', 'ValidationTextBox', 'PasswordTextBox'], true))) > 0);
+check('Keine Zeile mit nebeneinander stehenden Eingabefeldern (sonst Überbreite auf schmalen Bildschirmen)', count($rowInputs) === 0);
+check('Labels ohne harten Zeilenumbruch mitten im Satz (' . count($labels) . ' Labels)', count($labels) > 30 && count(array_filter($labels, fn($l) => preg_match('/[a-zäöüß,]\n[a-zäöüß]/u', $l))) === 0);
+check('Feldbreite höchstens 400 px', count(array_filter($inputs, fn($i) => (int)($i['width'] ?? 0) > 400)) === 0);
 $cbs = [];
 $walkC = function (array $items) use (&$walkC, &$cbs) { foreach ($items as $it) { if (($it['type'] ?? '') === 'CheckBox') { $cbs[] = $it['caption']; } if (isset($it['items'])) { $walkC($it['items']); } } };
 $walkC(form($m3f)['elements']);
@@ -491,7 +498,7 @@ $m2 = fresh(1);
 check('aWATTar gewählt: Hinweis auf Stundenwerte und faire Nutzung', str_contains(formText(form($m2)), 'nur Stundenwerte') && str_contains(formText(form($m2)), 'fairer Nutzung'));
 
 heading('13. Vertrags- und Code-Hygiene (SUITE.md Stolperstein 8/9/13/18/20)');
-$rc = new ReflectionClass(NRGSpotPrice::class);
+$rc = new ReflectionClass(Boersenpreis::class);
 foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'SetEntsoeToken', 'UIChangeSource', 'AckPurposeIntro', 'ShowPurposeIntro', 'AckNews', 'AckForumHint', 'GetDismissState', 'AdoptDismissState'] as $name) {
     $rm = $rc->getMethod($name);
     $okTypes = true; $okDefaults = true;
@@ -502,11 +509,11 @@ foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'SetEntsoeToken'
     }
     check("$name(): öffentlich, Parameter skalar typisiert, keine PHP-Standardwerte", $rm->isPublic() && $okTypes && $okDefaults);
 }
-preg_match_all('/SPOT_([A-Za-z]+)\(/', $txt . file_get_contents(dirname(__DIR__) . '/NRGSpotPrice/module.php'), $mm);
+preg_match_all('/SPOT_([A-Za-z]+)\(/', $txt . file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.php'), $mm);
 foreach (array_unique($mm[1]) as $fn) {
     check("SPOT_$fn → public function $fn() existiert", $rc->hasMethod($fn) && $rc->getMethod($fn)->isPublic());
 }
-$code = file_get_contents(dirname(__DIR__) . '/NRGSpotPrice/module.php');
+$code = file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.php');
 $codeOnly = '';
 foreach (token_get_all($code) as $t) { $codeOnly .= (is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true)) ? '' : (is_array($t) ? $t[1] : $t); }
 check('Keine feste Tageslänge (86400) im Code (Kommentare ausgenommen)', !str_contains($codeOnly, '86400'));
@@ -515,8 +522,8 @@ check('Kein @ vor IPS_Set*/SetValue (stille Fehlschläge)', !preg_match('/@(IPS_
 // Y-m-d nur als Maschinenformat: 2× Energy-Charts-URL, 1× Datumsvergleich in parseTibber() — nie in Texten.
 check('Sichtbare Datumsangaben immer mit Jahr (TT.MM.JJJJ, Store-Checkliste 9b)', !preg_match("/date\\('d\\.m\\.[ ']/", $codeOnly) && substr_count($codeOnly, "date('Y-m-d'") === 3);
 check('library.json: nur die 8 erlaubten Felder, Name „NRG-Stack Börsenpreis"', ($lj = json_decode(file_get_contents(dirname(__DIR__) . '/library.json'), true)) && array_keys($lj) === ['id', 'author', 'name', 'url', 'compatibility', 'version', 'build', 'date'] && $lj['name'] === 'NRG-Stack Börsenpreis' && $lj['compatibility'] === ['version' => '9.0']);
-$mj = json_decode(file_get_contents(dirname(__DIR__) . '/NRGSpotPrice/module.json'), true);
-check('module.json: Klasse = name, Präfix SPOT, GUIDs passen zur Klasse', $mj['name'] === 'NRGSpotPrice' && $mj['prefix'] === 'SPOT' && $mj['library'] === $lj['id'] && str_contains($code, $mj['id']) && str_contains($code, $lj['id']));
+$mj = json_decode(file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.json'), true);
+check('module.json: Klasse = name, Präfix SPOT, GUIDs passen zur Klasse', $mj['name'] === 'Boersenpreis' && $mj['prefix'] === 'SPOT' && $mj['library'] === $lj['id'] && str_contains($code, $mj['id']) && str_contains($code, $lj['id']));
 
 heading('14. Preisverlauf aus dem Archiv (Vertrag 1.1, SPOT_GetPriceHistory)');
 $GLOBALS['ARCHIVES'] = [99]; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = []; $GLOBALS['AC_APPLY'] = 0;

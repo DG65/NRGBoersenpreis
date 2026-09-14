@@ -1,6 +1,6 @@
 <?php
 /**
- * check-standalone.php — Prüft die Eigenständigkeit dieses Moduls (NRGSpotPrice, NRG-Stack Börsenpreis).
+ * check-standalone.php — Prüft die Eigenständigkeit dieses Moduls (Boersenpreis, NRG-Stack Börsenpreis).
  *
  * Grundregel des Modul-Verbunds: Kein Modul darf ein anderes voraussetzen.
  * Jeder Aufruf einer fremden Modulfunktion (MHUB_*, PVF_*, HEISHA_* ...) muss

@@ -1,7 +1,7 @@
 <?php
 
 // ===========================================================================
-// NRG-Stack Börsenpreis (NRGSpotPrice) — Day-Ahead-Börsenpreise ohne Tibber,
+// NRG-Stack Börsenpreis (Boersenpreis) — Day-Ahead-Börsenpreise ohne Tibber,
 // ohne Konto, als Verbund-Vertrag SPOT_GetPriceCurve().
 //
 // WOZU:
@@ -37,7 +37,7 @@
 // vorausgesetzt (Konsumenten wie EMS fragen hinter function_exists()).
 // ===========================================================================
 
-class NRGSpotPrice extends IPSModule
+class Boersenpreis extends IPSModule
 {
     private const LIBRARY_GUID = '{A5CA79FD-57C6-4F6E-A33B-61BCC2B0C9A7}';
     private const MODULE_GUID  = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
@@ -53,14 +53,13 @@ class NRGSpotPrice extends IPSModule
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
     private const NEWS_VERSION = '0.5.0';
-    // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — zu schmale
-    // Felder schneiden sie ab (Live-Fund 14.09.2026). Beschriftungen kurz halten, Erklärungen als Label.
-    private const FIELD_WIDTH  = '600px';
-    // Labels brechen in Symcon nicht selbst um, sie laufen rechts aus dem Bild (Live-Fund
-    // 14.09.2026) — deshalb jede Label-Zeile an Wortgrenzen auf höchstens so viele Zeichen umbrechen.
-    private const LABEL_WRAP   = 80;
-    private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
-    private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
+    // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
+    // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
+    // volle Breite selbst um, wie in allen Verbund-Modulen). Überbreite entsteht durch NEBENEINANDER
+    // stehende Eingabefelder (RowLayout) auf schmalen Bildschirmen — deshalb Felder untereinander.
+    private const FIELD_WIDTH  = '400px';
+    private const REPO_URL     = 'https://github.com/DG65/NRGBoersenpreis';
+    private const LICENSE_URL  = 'https://github.com/DG65/NRGBoersenpreis/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
     private const LOG_SENDER   = 'NRG-Stack Börsenpreis';
 
@@ -301,7 +300,7 @@ class NRGSpotPrice extends IPSModule
         $this->WriteAttributeString('EntsoeToken', $Token);
         $this->WriteAttributeString('LoggedError', '');
         $this->UpdateFormField('EntsoeTokenInput', 'value', '');
-        $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->wrap($this->entsoeTokenStatus()));
+        $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->entsoeTokenStatus());
         if ($Token === '') {
             return '🗑 ENTSO-E-Zugangsschlüssel gelöscht.';
         }
@@ -353,9 +352,9 @@ class NRGSpotPrice extends IPSModule
         if ($text === '') {
             $text = '✅ ' . $this->cacheSummary() . ' Kein Abruf nötig.';
         }
-        $this->UpdateFormField('FetchStatus', 'caption', $this->wrap($this->fetchStatusLine()));
-        $this->UpdateFormField('PriceSummary', 'caption', $this->wrap($this->priceSummary()));
-        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->wrap($this->marketSourceStatus()));
+        $this->UpdateFormField('FetchStatus', 'caption', $this->fetchStatusLine());
+        $this->UpdateFormField('PriceSummary', 'caption', $this->priceSummary());
+        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->marketSourceStatus());
         return $text;
     }
 
@@ -1490,11 +1489,8 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => 'Postleitzahl', 'validate' => '^[0-9]{5}$', 'width' => self::FIELD_WIDTH],
                 ['type' => 'Label', 'name' => 'TibberPostalHint', 'visible' => $tibber, 'caption' => 'ℹ️ Die Postleitzahl bestimmt Netzentgelt und Abgaben in Tibbers Endpreis und wird an Tibber übertragen.'],
                 ['type' => 'Label', 'name' => 'EntsoeTokenStatus', 'visible' => $entsoe, 'caption' => $this->entsoeTokenStatus()],
-                ['type' => 'RowLayout', 'items' => [
-                    ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => '420px'],
-                    // Breite 420 + Knopf ≈ Feldbreite der übrigen Felder
-                    ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => '🔑 Schlüssel speichern', 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
-                ]],
+                ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => self::FIELD_WIDTH],
+                ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => '🔑 Schlüssel speichern', 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
                 ['type' => 'Button', 'name' => 'EntsoeTokenGuide', 'visible' => $entsoe, 'caption' => 'Anleitung: Zugangsschlüssel beantragen', 'onClick' => "echo '" . self::ENTSOE_TOKEN_URL . "';", 'link' => true],
                 ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => self::FIELD_WIDTH, 'options' => $zones],
                 ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '500px', 'popup' => [
@@ -1566,11 +1562,9 @@ class NRGSpotPrice extends IPSModule
                 ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
                 ['type' => 'Label', 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
                 ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'caption' => 'Netzentgelt nach § 14a Modul 3'],
-                ['type' => 'RowLayout', 'items' => [
-                    ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
-                    ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
-                    ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
-                ]],
+                ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Netzentgelt Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Netzentgelt Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Netzentgelt Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
                 [
                     'type' => 'List', 'name' => 'NetzWindows', 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
                     'columns' => [
@@ -1658,43 +1652,6 @@ class NRGSpotPrice extends IPSModule
             [$this->ForumHint(), $this->LicenseHint()]
         )));
 
-        return json_encode(['elements' => $this->wrapLabels($elements), 'actions' => [], 'status' => $status]);
-    }
-
-    /** Jede Zeile an Wortgrenzen auf LABEL_WRAP Zeichen umbrechen (vorhandene Umbrüche bleiben). */
-    private function wrap(string $text): string
-    {
-        $lines = [];
-        foreach (explode("\n", $text) as $line) {
-            $out = '';
-            foreach (explode(' ', $line) as $word) {
-                if ($out !== '' && mb_strlen($out) + 1 + mb_strlen($word) > self::LABEL_WRAP) {
-                    $lines[] = $out;
-                    $out = $word;
-                } else {
-                    $out = $out === '' ? $word : $out . ' ' . $word;
-                }
-            }
-            $lines[] = $out;
-        }
-        return implode("\n", $lines);
-    }
-
-    /** Alle Labels im Formular umbrechen, auch in Panels, Zeilen und Hilfe-Fenstern. */
-    private function wrapLabels(array $items): array
-    {
-        foreach ($items as &$it) {
-            if (($it['type'] ?? '') === 'Label' && isset($it['caption'])) {
-                $it['caption'] = $this->wrap((string)$it['caption']);
-            }
-            if (isset($it['items']) && is_array($it['items'])) {
-                $it['items'] = $this->wrapLabels($it['items']);
-            }
-            if (isset($it['popup']['items']) && is_array($it['popup']['items'])) {
-                $it['popup']['items'] = $this->wrapLabels($it['popup']['items']);
-            }
-        }
-        unset($it);
-        return $items;
+        return json_encode(['elements' => $elements, 'actions' => [], 'status' => $status]);
     }
 }

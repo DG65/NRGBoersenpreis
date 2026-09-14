@@ -1,7 +1,7 @@
 {
   "id": "{11BBF147-16A1-4332-82A3-29BB31154D03}",
   "library": "{A5CA79FD-57C6-4F6E-A33B-61BCC2B0C9A7}",
-  "name": "NRGSpotPrice",
+  "name": "Boersenpreis",
   "type": 3,
   "vendor": "",
   "aliases": [
@@ -10,7 +10,7 @@
     "Day-Ahead-Preis",
     "Spotpreis"
   ],
-  "url": "https://github.com/DG65/NRGSpotPrice",
+  "url": "https://github.com/DG65/NRGBoersenpreis",
   "parentRequirements": [],
   "childRequirements": [],
   "implemented": [],

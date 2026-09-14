@@ -2,8 +2,8 @@
 
 ## Einordnung
 
-- **Marke NRG-Stack.** Anzeigename „NRG-Stack Börsenpreis", Klasse/Modulname `NRGSpotPrice`,
-  Präfix `SPOT_`, Repo `DG65/NRGSpotPrice` (kein Alt-Name, keine GitHub-Weiterleitung betroffen).
+- **Marke NRG-Stack.** Anzeigename „NRG-Stack Börsenpreis", Klasse/Modulname `Boersenpreis`,
+  Präfix `SPOT_`, Repo `DG65/NRGBoersenpreis` (kein Alt-Name, keine GitHub-Weiterleitung betroffen).
   Namen von Dietmar am 13.09.2026 freigegeben; ab der ersten echten Instanz eingefroren
   (Kernel-Reflection auf den Klassennamen).
 - **Kickoff:** `/Users/dietmar/Nextcloud/Claude/Boersenpreis-Kickoff.md` (EMS-Sitzung,
@@ -125,7 +125,7 @@ Bewährung Merge nach `beta`; `beta`→`main` entscheidet Dietmar. `LICENSE_URL`
 Anlegen den Standard-Branch — lag er auf dem Grundgerüst-`main` ohne `library.json`, brach die
 Installation mit „This repository seems corrupted. library.json is at least missing!
 (Code: -32603)" ab (live bei Dietmar). Erst zurück auf `main` stellen, wenn `main` selbst ein
-lauffähiges Modul trägt (`gh repo edit DG65/NRGSpotPrice --default-branch main`).
+lauffähiges Modul trägt (`gh repo edit DG65/NRGBoersenpreis --default-branch main`).
 
 ## Roadmap / bewusst nicht drin
 
