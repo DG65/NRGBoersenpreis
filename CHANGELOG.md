@@ -22,6 +22,9 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   Doku-Panel und README um „Marktdaten (Energie Manager)“ ergänzt, README-Hinweis zur Archivierung
   aktualisiert (schaltet das Modul selbst ein), „Wozu dieses Modul?“ nennt den Nutzen ohne EMS
   (Symcon Energie Manager).
+- Forum-Hinweis auf MeterHubs Muster umgestellt (EMS/Dietmar): Panel „💬  Feedback im
+  Symcon-Forum“ mit Knopf zum Forums-Thread — bis der Vorstellungs-Thread live ist, als
+  Platzhalter mit sichtbarem Warnhinweis.
 
 ## [0.5.1] - 2026-09-14
 

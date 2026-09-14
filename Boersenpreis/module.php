@@ -61,6 +61,9 @@ class Boersenpreis extends IPSModule
     private const REPO_URL     = 'https://github.com/DG65/NRGBoersenpreis';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGBoersenpreis/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
+    // Platzhalter bis zum Vorstellungs-Thread (Entwurf: Nextcloud/Claude/forum-ankuendigung-boersenpreis.md);
+    // danach echte URL eintragen und die Warnzeile im Forum-Hinweis entfernen.
+    private const FORUM_THREAD_URL = 'https://community.symcon.de/t/PLATZHALTER-boersenpreis-thread-folgt/00000';
     private const LOG_SENDER   = 'NRG-Stack Börsenpreis';
 
     private const SOURCE_ENERGYCHARTS = 0;
@@ -1609,12 +1612,14 @@ class Boersenpreis extends IPSModule
         if ($this->ReadAttributeBoolean('ForumHintGone')) {
             return null;
         }
+        // Muster MeterHub (EMS-Vorgabe 14.09.2026): eigenes Panel, Platzhalter + Warnhinweis, bis der Thread live ist.
         return [
             'type' => 'ExpansionPanel', 'name' => 'ForumHintPanel', 'expanded' => true,
-            'caption' => '💬  Rückmeldungen',
+            'caption' => '💬  Feedback im Symcon-Forum',
             'items' => [
-                ['type' => 'Label', 'caption' => '🧪 Das Modul ist neu — Fragen, Wünsche oder Fehler sind willkommen (Symcon-Forum bzw. GitHub).'],
-                ['type' => 'Button', 'caption' => 'Zum Repository', 'onClick' => "echo '" . self::REPO_URL . "';", 'link' => true],
+                ['type' => 'Label', 'caption' => 'Börsenpreis ist neu — Rückmeldungen, gerade zu den Quellen und zum Tarif für den Energie Manager, sind ausdrücklich willkommen im Community-Thread.'],
+                ['type' => 'Label', 'caption' => '⚠️ Platzhalter-Link, Thread noch nicht veröffentlicht.'],
+                ['type' => 'Button', 'caption' => 'Zum Forums-Thread', 'onClick' => "echo '" . self::FORUM_THREAD_URL . "';", 'link' => true],
                 ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckForumHint($id);'],
             ],
         ];

@@ -440,6 +440,7 @@ check('Kopfzeile ✅ mit Zeitpunkt TT.MM.JJJJ, Übersicht mit Heute/Morgen', str
 check('Quellennennung CC BY 4.0 aus der Antwort übernommen', str_contains($txt, 'CC BY 4.0') && str_contains($txt, 'SMARD'));
 check('Quellen-Auswahl als Select mit beiden Quellen, Zonen DE-LU/AT', str_contains($txt, '"name":"Source"') && str_contains($txt, 'aWATTar') && str_contains($txt, '"value":"AT"'));
 check('Kein Link-Button trägt die URL direkt in "link"', !preg_match('/"link":"http/', $txt));
+check('Forum-Hinweis im MeterHub-Muster: „💬  Feedback im Symcon-Forum“, Knopf zum Forums-Thread, Platzhalter-Warnung solange nicht live', str_contains($txt, '💬  Feedback im Symcon-Forum') && str_contains($txt, 'Zum Forums-Thread') && (str_contains($txt, 'community.symcon.de/t/PLATZHALTER') === str_contains($txt, 'Platzhalter-Link, Thread noch nicht veröffentlicht')));
 $popups = [];
 array_walk_recursive($f, function () {});
 foreach ($f['elements'] as $el) { foreach ($el['items'] ?? [] as $it) { if (($it['type'] ?? '') === 'PopupButton') { $popups[] = $it; } } }
