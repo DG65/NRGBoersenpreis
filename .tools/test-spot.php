@@ -33,6 +33,11 @@ $GLOBALS['LOG'] = [];
 $GLOBALS['HTTP'] = [];      // Warteschlange der nächsten Antworten
 $GLOBALS['REQUESTS'] = [];  // abgefragte URLs
 $GLOBALS['CLOCK'] = 0;
+// Geteiltes Ausblenden: generierte Kernel-Wrapper SPOT_* nachbilden (Instanz-ID → Objekt).
+$GLOBALS['SPOT_OBJ'] = [];
+$GLOBALS['ADOPT_CALLS'] = 0;
+function SPOT_GetDismissState(int $id): string { if (!isset($GLOBALS['SPOT_OBJ'][$id])) { throw new RuntimeException('Instanz fehlt'); } return $GLOBALS['SPOT_OBJ'][$id]->GetDismissState(); }
+function SPOT_AdoptDismissState(int $id, string $s): void { $GLOBALS['ADOPT_CALLS']++; if (!isset($GLOBALS['SPOT_OBJ'][$id])) { throw new RuntimeException('Instanz fehlt'); } $GLOBALS['SPOT_OBJ'][$id]->AdoptDismissState($s); }
 
 function IPS_GetKernelRunlevel(): int { return KR_READY; }
 function IPS_GetObjectIDByIdent(string $ident, int $parent) {
@@ -153,7 +158,8 @@ function ecFirst(string $file, int $n): string { $d = json_decode(fx($file), tru
 function requestsSince(int $from): array { return array_slice($GLOBALS['REQUESTS'], $from); }
 function v(SpotTest $m, string $ident) { return $m->GetValue($ident); }
 function form(SpotTest $m): array { $f = json_decode($m->GetConfigurationForm(), true); if (!is_array($f)) { throw new RuntimeException('GetConfigurationForm() liefert kein gültiges JSON'); } return $f; }
-function formText(array $f): string { return json_encode($f, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }
+/** Formular als Text; Zeilenumbrüche aus dem Label-Umbruch werden wieder zu Leerzeichen (Inhaltsprüfungen). */
+function formText(array $f): string { return str_replace('\n', ' ', json_encode($f, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
 function fresh(int $source = 0, string $zone = 'DE-LU'): SpotTest
 {
     $GLOBALS['VARS'] = [];
@@ -440,16 +446,53 @@ foreach ($f['elements'] as $el) { foreach ($el['items'] ?? [] as $it) { if (($it
 check('Hilfe-Knöpfe: volle Frage mit genau einem „?", Fenstertitel = Frage, Breite gesetzt', count($popups) === 5 && count(array_filter($popups, fn($p) => str_ends_with($p['caption'], '?') && !str_contains($p['caption'], '??') && !str_contains($p['caption'], '? ?') && ($p['popup']['caption'] ?? '') === $p['caption'] && ($p['width'] ?? '') !== '')) === 5);
 // Live-Fund 13.09.2026: 63 Zeichen liefen bei 460 px über den Knopfrand (Großbuchstaben-Skin).
 check('Hilfe-Fragen passen auf den Knopf (≤ 50 Zeichen, einheitlich 500 px)', count(array_filter($popups, fn($p) => mb_strlen($p['caption']) <= 50 && $p['width'] === '500px')) === 5, implode(' | ', array_map(fn($p) => mb_strlen($p['caption']) . ' ' . $p['caption'], $popups)));
+// Live-Fund 14.09.2026: Symcon zeigt die Beschriftung von Eingabefeldern IM Feld — zu lang oder zu schmal = abgeschnitten.
+$inputs = [];
+$walk = function (array $items) use (&$walk, &$inputs) {
+    foreach ($items as $it) {
+        if (in_array($it['type'] ?? '', ['Select', 'NumberSpinner', 'ValidationTextBox', 'PasswordTextBox'], true)) { $inputs[] = $it; }
+        if (isset($it['items']) && ($it['type'] ?? '') !== 'PopupButton') { $walk($it['items']); }
+    }
+};
+$m3f = fresh(3); // alle Felder sichtbar machen ist egal — die Prüfung gilt für jedes Feld im Formular
+$walk(form($m3f)['elements']);
+$bad = array_filter($inputs, fn($i) => mb_strlen($i['caption'] ?? '') > 26 || !isset($i['width']));
+check('Eingabefelder: Beschriftung ≤ 26 Zeichen und Breite gesetzt (' . count($inputs) . ' Felder)', count($inputs) === 10 && count($bad) === 0, implode(' | ', array_map(fn($i) => ($i['name'] ?? '?') . ': ' . ($i['caption'] ?? ''), $bad)));
+$opts = [];
+foreach ($inputs as $i) { foreach ($i['options'] ?? [] as $o) { $opts[] = $o['caption']; } }
+$labels = [];
+$walkL = function (array $items) use (&$walkL, &$labels) {
+    foreach ($items as $it) {
+        if (($it['type'] ?? '') === 'Label') { $labels[] = (string)($it['caption'] ?? ''); }
+        if (isset($it['items'])) { $walkL($it['items']); }
+        if (isset($it['popup']['items'])) { $walkL($it['popup']['items']); }
+    }
+};
+$walkL(form($m3f)['elements']);
+$walkL(form($m)['elements']);
+$long = [];
+foreach ($labels as $l) { foreach (explode("\n", $l) as $line) { if (mb_strlen($line) > 80) { $long[] = $line; } } }
+check('Jede Label-Zeile ≤ 80 Zeichen (Symcon bricht Labels nicht selbst um) — ' . count($labels) . ' Labels', count($labels) > 30 && count($long) === 0, implode(' | ', array_slice($long, 0, 3)));
+$cbs = [];
+$walkC = function (array $items) use (&$walkC, &$cbs) { foreach ($items as $it) { if (($it['type'] ?? '') === 'CheckBox') { $cbs[] = $it['caption']; } if (isset($it['items'])) { $walkC($it['items']); } } };
+$walkC(form($m3f)['elements']);
+check('Schalter-Beschriftungen ≤ 45 Zeichen', count(array_filter($cbs, fn($c) => mb_strlen($c) > 45)) === 0, implode(' | ', array_filter($cbs, fn($c) => mb_strlen($c) > 45)));
+check('Kein Eingabefeld mit negativem Minimum (Konsole zeigt sonst das Minimum statt 0)', count(array_filter($inputs, fn($i) => ($i['minimum'] ?? 0) < 0)) === 0);
+check('Auswahl-Einträge ≤ 50 Zeichen', count(array_filter($opts, fn($c) => mb_strlen($c) > 50)) === 0, implode(' | ', array_filter($opts, fn($c) => mb_strlen($c) > 50)));
 check('Knopf „Preise jetzt abrufen" gibt Rückmeldung per echo', str_contains($txt, 'echo SPOT_Update($id);'));
 $m->AckPurposeIntro(); $m->AckNews(); $m->AckForumHint();
 $f2 = form($m);
-check('Nach Bestätigen: Zweck/Neu/Rückmeldungen weg, Lizenz bleibt unten', count($f2['elements']) === count($f['elements']) - 3 && str_contains(end($f2['elements'])['caption'], 'Über dieses Modul'));
+$visible = fn(array $els) => array_values(array_filter($els, fn($e) => ($e['visible'] ?? true) !== false));
+check('Nach Bestätigen: Zweck/Neu/Rückmeldungen nicht mehr sichtbar, Lizenz bleibt unten', count($visible($f2['elements'])) === count($visible($f['elements'])) - 3 && str_contains(end($f2['elements'])['caption'], 'Über dieses Modul'));
+check('Zweck-Panel bleibt (unsichtbar) im Formular, Doku-Panel hat Knopf „wieder anzeigen“', ($f2['elements'][0]['name'] ?? '') === 'PurposeIntroPanel' && $f2['elements'][0]['visible'] === false && str_contains(formText($f2), 'echo SPOT_ShowPurposeIntro($id);'));
+$r = $m->ShowPurposeIntro();
+check('„Wieder anzeigen“: sofort sichtbar (ohne Neuladen), mit Rückmeldung', str_starts_with($r, '👋') && in_array(['PurposeIntroPanel', 'visible', true], $m->fieldUpdates, true) && form($m)['elements'][0]['visible'] === true);
 $m2 = fresh(1);
 check('aWATTar gewählt: Hinweis auf Stundenwerte und faire Nutzung', str_contains(formText(form($m2)), 'nur Stundenwerte') && str_contains(formText(form($m2)), 'fairer Nutzung'));
 
 heading('13. Vertrags- und Code-Hygiene (SUITE.md Stolperstein 8/9/13/18/20)');
 $rc = new ReflectionClass(NRGSpotPrice::class);
-foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'SetEntsoeToken', 'UIChangeSource', 'AckPurposeIntro', 'AckNews', 'AckForumHint'] as $name) {
+foreach (['GetPriceCurve', 'GetPriceHistory', 'Update', 'Tick', 'SetEntsoeToken', 'UIChangeSource', 'AckPurposeIntro', 'ShowPurposeIntro', 'AckNews', 'AckForumHint', 'GetDismissState', 'AdoptDismissState'] as $name) {
     $rm = $rc->getMethod($name);
     $okTypes = true; $okDefaults = true;
     foreach ($rm->getParameters() as $p) {
@@ -734,6 +777,43 @@ $m->ApplyChanges();
 check('Tibber wirft (z. B. lädt neu): kein Absturz, eigener Tarif, Meldung im Formular', $mdAt($m, '2026-09-12 10:00:00') !== null && str_contains(formText(form($m)), 'antwortet nicht'));
 $GLOBALS['TIBBER_THROW'] = false;
 $GLOBALS['INSTANCES'] = [];
+
+heading('19. Ausblenden über mehrere Instanzen teilen (SUITE.md, 14.09.2026)');
+$G = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = [];
+$mk = function (int $id) {
+    $o = new SpotTest();
+    $o->InstanceID = $id;
+    $o->Create();
+    $o->props['Source'] = 0; $o->props['BiddingZone'] = 'DE-LU';
+    $GLOBALS['SPOT_OBJ'][$id] = $o;
+    return $o;
+};
+$a = $mk(20001); $b = $mk(20002);
+$GLOBALS['INSTANCES'][$G] = [20001, 20002];
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json')); $a->ApplyChanges();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json')); $b->ApplyChanges();
+$panels = fn(SpotTest $o) => array_filter(array_map(fn($e) => ($e['visible'] ?? true) === false ? '' : ($e['name'] ?? ''), form($o)['elements']));
+check('Beide Instanzen zeigen anfangs „Wozu dieses Modul?“, „Neu“ und „Rückmeldungen“', count(array_intersect(['PurposeIntroPanel', 'NewsPanel', 'ForumHintPanel'], $panels($a))) === 3 && count(array_intersect(['PurposeIntroPanel', 'NewsPanel', 'ForumHintPanel'], $panels($b))) === 3);
+$GLOBALS['ADOPT_CALLS'] = 0;
+$a->AckPurposeIntro();
+check('„Wozu“ in A bestätigt → auch in B weg, genau ein Übernahme-Aufruf (kein Hin-und-her)', !in_array('PurposeIntroPanel', $panels($b), true) && in_array('NewsPanel', $panels($b), true) && $GLOBALS['ADOPT_CALLS'] === 1, (string)$GLOBALS['ADOPT_CALLS']);
+$b->AckNews(); $b->AckForumHint();
+check('„Neu“ und „Rückmeldungen“ in B bestätigt → auch in A weg', !in_array('NewsPanel', $panels($a), true) && !in_array('ForumHintPanel', $panels($a), true));
+$c = $mk(20003);
+$GLOBALS['INSTANCES'][$G] = [20001, 20002, 20003];
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$c->ApplyChanges();
+check('Neue Instanz C übernimmt den Stand einmalig (keine der drei Tafeln)', count(array_intersect(['PurposeIntroPanel', 'NewsPanel', 'ForumHintPanel'], $panels($c))) === 0);
+$b->AdoptDismissState(json_encode(['purpose' => false, 'news' => '0.0.1', 'forum' => false]));
+check('Übernahme blendet nie wieder ein und stuft „Neu“ nicht auf eine ältere Version zurück', !in_array('PurposeIntroPanel', $panels($b), true) && !in_array('NewsPanel', $panels($b), true));
+$GLOBALS['INSTANCES'][$G] = [20001, 20002, 20009]; // 20009: entfernte/defekte Instanz
+$a->attrs['ForumHintGone'] = false;
+$a->AckForumHint();
+check('Defekte Geschwister-Instanz: kein Absturz, die übrigen übernehmen trotzdem', !in_array('ForumHintPanel', $panels($b), true));
+$GLOBALS['INSTANCES'] = [];
+$GLOBALS['SPOT_OBJ'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

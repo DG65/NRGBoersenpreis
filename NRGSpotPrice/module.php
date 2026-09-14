@@ -53,6 +53,12 @@ class NRGSpotPrice extends IPSModule
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
     private const NEWS_VERSION = '0.5.0';
+    // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — zu schmale
+    // Felder schneiden sie ab (Live-Fund 14.09.2026). Beschriftungen kurz halten, Erklärungen als Label.
+    private const FIELD_WIDTH  = '600px';
+    // Labels brechen in Symcon nicht selbst um, sie laufen rechts aus dem Bild (Live-Fund
+    // 14.09.2026) — deshalb jede Label-Zeile an Wortgrenzen auf höchstens so viele Zeichen umbrechen.
+    private const LABEL_WRAP   = 80;
     private const REPO_URL     = 'https://github.com/DG65/NRGSpotPrice';
     private const LICENSE_URL  = 'https://github.com/DG65/NRGSpotPrice/blob/main/LICENSE';
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
@@ -164,6 +170,7 @@ class NRGSpotPrice extends IPSModule
         $this->RegisterAttributeBoolean('PurposeIntroGone', false);
         $this->RegisterAttributeString('SeenNews', '');
         $this->RegisterAttributeBoolean('ForumHintGone', false);
+        $this->RegisterAttributeBoolean('DismissAdopted', false);
 
         $this->RegisterTimer('Fetch', 0, 'SPOT_Update($_IPS[\'TARGET\']);');
         $this->RegisterTimer('Tick', 0, 'SPOT_Tick($_IPS[\'TARGET\']);');
@@ -179,6 +186,7 @@ class NRGSpotPrice extends IPSModule
         }
 
         $this->ensureProfiles();
+        $this->adoptDismissFromSibling();
         $this->MaintainVariable('CurrentPrice', 'Börsenpreis jetzt', VARIABLETYPE_FLOAT, 'SPOT.CentKWh', 1, true);
         $this->MaintainVariable('NegativeNow', 'Negativer Börsenpreis jetzt', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
         $this->MaintainVariable('NextNegativeStart', 'Nächste negative Viertelstunde', VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
@@ -293,7 +301,7 @@ class NRGSpotPrice extends IPSModule
         $this->WriteAttributeString('EntsoeToken', $Token);
         $this->WriteAttributeString('LoggedError', '');
         $this->UpdateFormField('EntsoeTokenInput', 'value', '');
-        $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->entsoeTokenStatus());
+        $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->wrap($this->entsoeTokenStatus()));
         if ($Token === '') {
             return '🗑 ENTSO-E-Zugangsschlüssel gelöscht.';
         }
@@ -310,6 +318,7 @@ class NRGSpotPrice extends IPSModule
             $this->UpdateFormField($name, 'visible', $Source === self::SOURCE_ENTSOE);
         }
         $this->UpdateFormField('TibberPostalCode', 'visible', $Source === self::SOURCE_TIBBER);
+        $this->UpdateFormField('TibberPostalHint', 'visible', $Source === self::SOURCE_TIBBER);
     }
 
     /** Timer-Einstieg: zu jeder Viertelstunde die Anzeige-Variablen aus dem Zwischenspeicher setzen. */
@@ -344,9 +353,9 @@ class NRGSpotPrice extends IPSModule
         if ($text === '') {
             $text = '✅ ' . $this->cacheSummary() . ' Kein Abruf nötig.';
         }
-        $this->UpdateFormField('FetchStatus', 'caption', $this->fetchStatusLine());
-        $this->UpdateFormField('PriceSummary', 'caption', $this->priceSummary());
-        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->marketSourceStatus());
+        $this->UpdateFormField('FetchStatus', 'caption', $this->wrap($this->fetchStatusLine()));
+        $this->UpdateFormField('PriceSummary', 'caption', $this->wrap($this->priceSummary()));
+        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->wrap($this->marketSourceStatus()));
         return $text;
     }
 
@@ -1224,18 +1233,102 @@ class NRGSpotPrice extends IPSModule
     {
         $this->WriteAttributeBoolean('PurposeIntroGone', true);
         $this->UpdateFormField('PurposeIntroPanel', 'visible', false);
+        $this->propagateDismiss();
+    }
+
+    /** SPOT_ShowPurposeIntro($id): string — „Wozu dieses Modul?“ wieder einblenden (nur diese Instanz). */
+    public function ShowPurposeIntro(): string
+    {
+        $this->WriteAttributeBoolean('PurposeIntroGone', false);
+        $this->UpdateFormField('PurposeIntroPanel', 'visible', true);
+        return '👋 „Wozu dieses Modul?“ steht wieder ganz oben im Formular.';
     }
 
     public function AckNews(): void
     {
         $this->WriteAttributeString('SeenNews', self::NEWS_VERSION);
         $this->UpdateFormField('NewsPanel', 'visible', false);
+        $this->propagateDismiss();
     }
 
     public function AckForumHint(): void
     {
         $this->WriteAttributeBoolean('ForumHintGone', true);
         $this->UpdateFormField('ForumHintPanel', 'visible', false);
+        $this->propagateDismiss();
+    }
+
+    /**
+     * SPOT_GetDismissState($id): string — Ausblende-Zustand dieser Instanz als JSON
+     * {purpose, news, forum}. Attribute sind von außen nicht lesbar, deshalb diese Funktion
+     * (SUITE.md „Ausblenden über mehrere Instanzen desselben Moduls teilen“, 14.09.2026).
+     */
+    public function GetDismissState(): string
+    {
+        return json_encode([
+            'purpose' => (bool)$this->ReadAttributeBoolean('PurposeIntroGone'),
+            'news'    => (string)$this->ReadAttributeString('SeenNews'),
+            'forum'   => (bool)$this->ReadAttributeBoolean('ForumHintGone'),
+        ]);
+    }
+
+    /**
+     * SPOT_AdoptDismissState($id, string $State): void — Ausblende-Zustand einer Geschwister-
+     * Instanz übernehmen. Gibt selbst NIE weiter (Ping-Pong strukturell ausgeschlossen, Muster
+     * MeterHub 0.29.1). Blendet nur aus, blendet nie wieder ein; „Neu in Version“ versionsscharf.
+     */
+    public function AdoptDismissState(string $State): void
+    {
+        $s = json_decode($State, true);
+        if (!is_array($s)) {
+            return;
+        }
+        if (!empty($s['purpose'])) {
+            $this->WriteAttributeBoolean('PurposeIntroGone', true);
+        }
+        if (($s['news'] ?? '') !== '' && version_compare((string)$s['news'], (string)$this->ReadAttributeString('SeenNews'), '>')) {
+            $this->WriteAttributeString('SeenNews', (string)$s['news']);
+        }
+        if (!empty($s['forum'])) {
+            $this->WriteAttributeBoolean('ForumHintGone', true);
+        }
+    }
+
+    /** Eigenen Ausblende-Zustand an alle anderen Instanzen dieses Moduls geben (nur Übernahme-Schritt). */
+    private function propagateDismiss(): void
+    {
+        $state = $this->GetDismissState();
+        foreach ($this->siblingInstances() as $sibling) {
+            try {
+                SPOT_AdoptDismissState($sibling, $state);
+            } catch (Throwable $e) {
+                $this->SendDebug('Ausblenden', 'Instanz #' . $sibling . ' nicht erreichbar: ' . $e->getMessage(), 0);
+            }
+        }
+    }
+
+    /** Neue Instanz: einmalig den Ausblende-Zustand einer vorhandenen Geschwister-Instanz übernehmen. */
+    private function adoptDismissFromSibling(): void
+    {
+        if ($this->ReadAttributeBoolean('DismissAdopted')) {
+            return;
+        }
+        $this->WriteAttributeBoolean('DismissAdopted', true);
+        foreach ($this->siblingInstances() as $sibling) {
+            try {
+                $this->AdoptDismissState((string)SPOT_GetDismissState($sibling));
+                return;
+            } catch (Throwable $e) {
+                continue;
+            }
+        }
+    }
+
+    private function siblingInstances(): array
+    {
+        return array_values(array_filter(IPS_GetInstanceListByModuleID(self::MODULE_GUID), function ($id) {
+            return (int)$id !== $this->InstanceID;
+        }));
     }
 
     /** Eine Kopfzeile: letzter Abruf, Ergebnis, nächster Versuch. */
@@ -1312,13 +1405,16 @@ class NRGSpotPrice extends IPSModule
             . 'Quellennennung: Energy-Charts.info' . ($license !== '' ? ' — ' . $license : ' — Lizenz CC BY 4.0, Daten Bundesnetzagentur | SMARD.de') . '.';
     }
 
-    private function PurposeIntro(): ?array
+    /**
+     * Anders als in der Vorlage immer im Formular, nur unsichtbar geschaltet: So kann der Knopf im
+     * Doku-Panel es ohne Neuladen wieder einblenden (Dietmar vermisste den Zweck-Text, 14.09.2026 —
+     * er war einmal weggeklickt und danach nirgends mehr zu finden).
+     */
+    private function PurposeIntro(): array
     {
-        if ($this->ReadAttributeBoolean('PurposeIntroGone')) {
-            return null;
-        }
         return [
             'type' => 'ExpansionPanel', 'name' => 'PurposeIntroPanel', 'expanded' => true,
+            'visible' => !$this->ReadAttributeBoolean('PurposeIntroGone'),
             'caption' => '👋  Wozu dieses Modul?',
             'items' => [
                 ['type' => 'Label', 'caption' => 'Dieses Modul holt die Day-Ahead-Börsenpreise für heute und morgen (Viertelstunden, Gebotszone Deutschland/Luxemburg oder Österreich) — ohne Konto, ohne Stromvertrag bei einem bestimmten Anbieter — und stellt sie Variablen, Skripten und anderen NRG-Stack-Modulen bereit.'],
@@ -1359,6 +1455,7 @@ class NRGSpotPrice extends IPSModule
             'caption' => '📖  Dokumentation & Hilfe',
             'items' => [
                 ['type' => 'Label', 'caption' => $verTxt],
+                ['type' => 'Button', 'caption' => '👋 „Wozu dieses Modul?“ wieder anzeigen', 'onClick' => 'echo SPOT_ShowPurposeIntro($id);'],
                 ['type' => 'Label', 'caption' => 'Was geliefert wird: der Day-Ahead-Börsenpreis der gewählten Gebotszone je Viertelstunde, umgerechnet in ct/kWh, NETTO — ohne Steuern, Umlagen und Netzentgelt. Negative Preise werden genau so weitergegeben. Das ist nicht dein Endkundenpreis.'],
                 ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
                 ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
@@ -1384,20 +1481,22 @@ class NRGSpotPrice extends IPSModule
             'type' => 'ExpansionPanel', 'expanded' => true,
             'caption' => '🔌  Datenquelle',
             'items' => [
-                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => '560px', 'onChange' => 'SPOT_UIChangeSource($id, $Source);', 'options' => [
-                    ['caption' => 'Energy-Charts (Fraunhofer ISE) — Viertelstunden, ohne Anmeldung (empfohlen)', 'value' => self::SOURCE_ENERGYCHARTS],
-                    ['caption' => 'EPEX Spot (über ENTSO-E) — Viertelstunden, Zugangsschlüssel nötig', 'value' => self::SOURCE_ENTSOE],
-                    ['caption' => 'Tibber-Preisübersicht — Viertelstunden, ohne Konto, per Postleitzahl', 'value' => self::SOURCE_TIBBER],
+                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => self::FIELD_WIDTH, 'onChange' => 'SPOT_UIChangeSource($id, $Source);', 'options' => [
+                    ['caption' => 'Energy-Charts (Fraunhofer ISE) — empfohlen', 'value' => self::SOURCE_ENERGYCHARTS],
+                    ['caption' => 'EPEX Spot über ENTSO-E — mit Zugangsschlüssel', 'value' => self::SOURCE_ENTSOE],
+                    ['caption' => 'Tibber-Preisübersicht — per Postleitzahl', 'value' => self::SOURCE_TIBBER],
                     ['caption' => 'aWATTar — nur Stundenwerte', 'value' => self::SOURCE_AWATTAR],
                 ]],
-                ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => 'Postleitzahl (für Netzentgelt und Abgaben, wird an Tibber übertragen)', 'validate' => '^[0-9]{5}$', 'width' => '560px'],
+                ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => 'Postleitzahl', 'validate' => '^[0-9]{5}$', 'width' => self::FIELD_WIDTH],
+                ['type' => 'Label', 'name' => 'TibberPostalHint', 'visible' => $tibber, 'caption' => 'ℹ️ Die Postleitzahl bestimmt Netzentgelt und Abgaben in Tibbers Endpreis und wird an Tibber übertragen.'],
                 ['type' => 'Label', 'name' => 'EntsoeTokenStatus', 'visible' => $entsoe, 'caption' => $this->entsoeTokenStatus()],
                 ['type' => 'RowLayout', 'items' => [
                     ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => '420px'],
+                    // Breite 420 + Knopf ≈ Feldbreite der übrigen Felder
                     ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => '🔑 Schlüssel speichern', 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
                 ]],
                 ['type' => 'Button', 'name' => 'EntsoeTokenGuide', 'visible' => $entsoe, 'caption' => 'Anleitung: Zugangsschlüssel beantragen', 'onClick' => "echo '" . self::ENTSOE_TOKEN_URL . "';", 'link' => true],
-                ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => '560px', 'options' => $zones],
+                ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => self::FIELD_WIDTH, 'options' => $zones],
                 ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '500px', 'popup' => [
                     'caption' => 'Welche Quelle und Gebotszone soll ich wählen?',
                     'items' => [
@@ -1457,17 +1556,20 @@ class NRGSpotPrice extends IPSModule
             'items' => [
                 ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach deinem Endpreis.'],
                 ['type' => 'Label', 'name' => 'MarketSourceStatus', 'caption' => $this->marketSourceStatus()],
-                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Ist Tibber Grid Rewards installiert: dessen echten Tibber-Endpreis verwenden (empfohlen für Tibber-Kunden)'],
-                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen (z. B. anderer dynamischer Tarif)'],
-                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'caption' => 'Aufschlag deines Anbieters auf den Börsenpreis (Beschaffung, Marge)', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => -20, 'maximum' => 100],
-                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'caption' => 'Konzessionsabgabe deiner Gemeinde', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => 0, 'maximum' => 5],
-                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh netto', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Preis von Tibber Grid Rewards nutzen'],
+                ['type' => 'Label', 'caption' => 'ℹ️ Nur wenn das Modul Tibber Grid Rewards installiert ist: dann kommt dein echter Tibber-Endpreis von dort (empfohlen für Tibber-Kunden).'],
+                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen'],
+                ['type' => 'Label', 'caption' => 'z. B. für einen anderen dynamischen Tarif. Alle Beträge netto in ct/kWh — die Mehrwertsteuer rechnet das Modul selbst hinzu.'],
+                // Minimum 0: Bei negativem Minimum zeigte die Konsole für den Wert 0 das Minimum an (−20, Live-Fund 14.09.2026).
+                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'caption' => 'Aufschlag des Anbieters', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 100, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'caption' => 'Konzessionsabgabe', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 5, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
                 ['type' => 'Label', 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
-                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'caption' => 'Zeitvariables Netzentgelt nach § 14a Modul 3'],
+                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'caption' => 'Netzentgelt nach § 14a Modul 3'],
                 ['type' => 'RowLayout', 'items' => [
-                    ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
-                    ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
-                    ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50],
+                    ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
+                    ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
+                    ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => '195px'],
                 ]],
                 [
                     'type' => 'List', 'name' => 'NetzWindows', 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
@@ -1556,6 +1658,43 @@ class NRGSpotPrice extends IPSModule
             [$this->ForumHint(), $this->LicenseHint()]
         )));
 
-        return json_encode(['elements' => $elements, 'actions' => [], 'status' => $status]);
+        return json_encode(['elements' => $this->wrapLabels($elements), 'actions' => [], 'status' => $status]);
+    }
+
+    /** Jede Zeile an Wortgrenzen auf LABEL_WRAP Zeichen umbrechen (vorhandene Umbrüche bleiben). */
+    private function wrap(string $text): string
+    {
+        $lines = [];
+        foreach (explode("\n", $text) as $line) {
+            $out = '';
+            foreach (explode(' ', $line) as $word) {
+                if ($out !== '' && mb_strlen($out) + 1 + mb_strlen($word) > self::LABEL_WRAP) {
+                    $lines[] = $out;
+                    $out = $word;
+                } else {
+                    $out = $out === '' ? $word : $out . ' ' . $word;
+                }
+            }
+            $lines[] = $out;
+        }
+        return implode("\n", $lines);
+    }
+
+    /** Alle Labels im Formular umbrechen, auch in Panels, Zeilen und Hilfe-Fenstern. */
+    private function wrapLabels(array $items): array
+    {
+        foreach ($items as &$it) {
+            if (($it['type'] ?? '') === 'Label' && isset($it['caption'])) {
+                $it['caption'] = $this->wrap((string)$it['caption']);
+            }
+            if (isset($it['items']) && is_array($it['items'])) {
+                $it['items'] = $this->wrapLabels($it['items']);
+            }
+            if (isset($it['popup']['items']) && is_array($it['popup']['items'])) {
+                $it['popup']['items'] = $this->wrapLabels($it['popup']['items']);
+            }
+        }
+        unset($it);
+        return $items;
     }
 }

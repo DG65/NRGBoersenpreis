@@ -3,6 +3,30 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.5.1] - 2026-09-14
+
+### Fixed
+- Abgeschnittene Beschriftungen im Formular (Live-Fund Dietmar): Symcon zeigt sie im Eingabefeld
+  selbst. Alle Eingabefelder jetzt einheitlich 600 px breit, Beschriftungen kurz, Erklärungen als
+  Hinweiszeile (z. B. Postleitzahl, „alle Beträge netto“), Quellen-Auswahl mit kürzeren Einträgen.
+  Prüfstand begrenzt Feldbeschriftungen auf 26 und Auswahl-Einträge auf 50 Zeichen.
+- Lange Hinweiszeilen liefen rechts aus dem Bild — Symcon bricht Labels nicht selbst um. Alle
+  Labels (auch Statuszeilen und Hilfe-Fenster) werden jetzt an Wortgrenzen auf höchstens
+  80 Zeichen je Zeile umbrochen; Schalter-Beschriftungen gekürzt (Erklärung als Hinweiszeile).
+- „Aufschlag des Anbieters“ zeigte −20,000, obwohl 0 gespeichert war (die Konsole zeigte bei
+  negativem Minimum das Minimum an) — Minimum jetzt 0.
+
+### Added
+- **„Wozu dieses Modul?“ wieder anzeigen:** Knopf im Panel „Dokumentation & Hilfe“. Einmal
+  weggeklickt war der Zweck-Text bisher nirgends mehr zu finden (Live-Fund Dietmar: Panel bei ihm
+  ausgeblendet, „Neu“ und „Rückmeldungen“ noch da). Das Panel bleibt dafür immer im Formular und
+  wird nur unsichtbar geschaltet — der Knopf blendet es sofort wieder ein.
+- Ausblenden von „Wozu dieses Modul?“, „Neu in Version“ und „Rückmeldungen“ gilt jetzt für alle
+  Börsenpreis-Instanzen (SUITE.md-Konvention 14.09.2026, Muster MeterHub): Bestätigen gibt den
+  Zustand an die Geschwister weiter (`SPOT_AdoptDismissState`, gibt selbst nie weiter), eine neue
+  Instanz übernimmt ihn einmalig (`SPOT_GetDismissState`). „Neu“ versionsscharf, nie
+  zurückgestuft, nie wieder eingeblendet; defekte Geschwister-Instanzen stören nicht.
+
 ## [0.5.0] - 2026-09-14
 
 ### Changed
