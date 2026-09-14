@@ -49,7 +49,6 @@ class NRGSpotPrice extends IPSModule
     // Symcon-Kernmodul Archive Control (im Verbund 38× verwendet, u. a. EMS/Dashboard).
     private const ARCHIVE_GUID      = '{43192F0B-135B-4CE7-A0A7-1475603F3060}';
     private const HISTORY_MAX_DAYS  = 400;   // Obergrenze je GetPriceHistory-Aufruf
-    private const ARCHIVE_PAGE      = 10000; // Zeilen je AC_GetLoggedValues-Seite
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
@@ -139,7 +138,8 @@ class NRGSpotPrice extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
-        if ($Message === IPS_KERNELMESSAGE && isset($Data[0]) && $Data[0] === KR_READY) {
+        // Instanz kann zwischen zwei Modul-Updates kurz fehlen (SUITE.md 9c).
+        if ($Message === IPS_KERNELMESSAGE && isset($Data[0]) && $Data[0] === KR_READY && IPS_InstanceExists($this->InstanceID)) {
             $this->ApplyChanges();
         }
     }
@@ -548,13 +548,9 @@ class NRGSpotPrice extends IPSModule
         $this->setIfChanged('NextNegativeStart', $nextNeg);
         $this->setIfChanged('TomorrowAvailable', $this->hasDay($now, 1));
 
-        if ($current === null) {
-            $this->SetStatus(201);
-        } elseif ($this->ReadAttributeString('LastError') !== '') {
-            $this->SetStatus(202);
-        } else {
-            $this->SetStatus(102);
-        }
+        // Ein gescheiterter Abruf bei gültigen Preisen (z. B. Ratenlimit) ist kein Instanzfehler:
+        // Watchdogs sehen nur den Status (SUITE.md 9d). Er steht im Formular und einmal im Log.
+        $this->SetStatus($current === null ? 201 : 102);
     }
 
     // -----------------------------------------------------------------
@@ -601,20 +597,20 @@ class NRGSpotPrice extends IPSModule
             return [];
         }
         $vid = (int)$vid;
+        // Tageweise abfragen (SUITE.md 9g: > 50 000 intern gelesene Werte → false), nie „seit
+        // Epoche“. false heißt hier „für diese Variable kein Logging“ (@ unterdrückt nur die
+        // Warnung dazu) — keine Historie, kein Fehler; ein Tag hat höchstens ~100 Änderungen.
         $rows = [];
-        $end = $to - 1;
-        for ($page = 0; $page < 20; $page++) {
-            $chunk = @AC_GetLoggedValues($arch, $vid, $from, $end, self::ARCHIVE_PAGE);
-            if (!is_array($chunk) || count($chunk) === 0) {
-                break;
+        for ($day = $this->dayStart($from, 0); $day < $to; $day = $this->dayStart($day, 1)) {
+            $chunk = @AC_GetLoggedValues($arch, $vid, max($from, $day), min($to, $this->dayStart($day, 1)) - 1, 0);
+            if (is_array($chunk)) {
+                $rows = array_merge($rows, $chunk);
+            } else {
+                $this->SendDebug('Archiv', 'Keine Archivwerte lesbar für ' . date('d.m.Y', $day), 0);
             }
-            $rows = array_merge($rows, $chunk);
-            if (count($chunk) < self::ARCHIVE_PAGE) {
-                break;
-            }
-            $end = min(array_column($chunk, 'TimeStamp')) - 1;
         }
-        $before = @AC_GetLoggedValues($arch, $vid, 0, $from - 1, 1);
+        // Wert vor Beginn: nur im Gültigkeitsfenster (12 h) suchen — älter zählt ohnehin nicht.
+        $before = @AC_GetLoggedValues($arch, $vid, $from - self::HOLD_MAX_SECONDS, $from - 1, 1);
         $current = null;
         $since = 0;
         if (is_array($before) && count($before) > 0) {
@@ -705,18 +701,19 @@ class NRGSpotPrice extends IPSModule
 
     private function source(): int
     {
-        return $this->ReadPropertyInteger('Source') === self::SOURCE_AWATTAR ? self::SOURCE_AWATTAR : self::SOURCE_ENERGYCHARTS;
+        return (int)$this->ReadPropertyInteger('Source') === self::SOURCE_AWATTAR ? self::SOURCE_AWATTAR : self::SOURCE_ENERGYCHARTS;
     }
 
     private function zone(): string
     {
-        $zone = $this->ReadPropertyString('BiddingZone');
+        $zone = (string)$this->ReadPropertyString('BiddingZone');
         return isset(self::ZONES[$zone]) ? $zone : 'DE-LU';
     }
 
     private function cache(): array
     {
-        $cache = json_decode($this->ReadAttributeString('PriceCache'), true);
+        // (string): während eines Neuladens liefert das SDK false statt '' (SUITE.md 9c).
+        $cache = json_decode((string)$this->ReadAttributeString('PriceCache'), true);
         return is_array($cache) ? $cache : [];
     }
 

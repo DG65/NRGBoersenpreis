@@ -3,7 +3,6 @@
   "actions": [],
   "status": [
     { "code": 102, "icon": "active", "caption": "Aktiv — Börsenpreise für die laufende Viertelstunde liegen vor" },
-    { "code": 201, "icon": "error", "caption": "Keine Börsenpreise für die laufende Viertelstunde — Quelle nicht erreichbar oder noch kein erfolgreicher Abruf" },
-    { "code": 202, "icon": "inactive", "caption": "Letzter Abruf fehlgeschlagen — vorhandene Preise werden weiter genutzt" }
+    { "code": 201, "icon": "error", "caption": "Keine Börsenpreise für die laufende Viertelstunde — Quelle nicht erreichbar oder noch kein erfolgreicher Abruf" }
   ]
 }

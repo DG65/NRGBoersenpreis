@@ -46,7 +46,10 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
 6. **Kalender per `mktime()`**, nie ±86400 (Stolperstein 18). Viertelstunden-Takt über
    900-s-Vielfache der Unixzeit (ein Delta, keine Tageslänge).
 7. **Fehler:** Speicher bleibt, `LastError` fürs Formular, `IPS_LogMessage()` nur beim ersten
-   Auftreten desselben Fehlers (kein Log-Sturm bei 15-min-Wiederholung).
+   Auftreten desselben Fehlers (kein Log-Sturm bei 15-min-Wiederholung). **Kein Warnstatus**
+   dafür (SUITE.md 9d, seit 0.2.1): Status nur 102 (Preis für jetzt da) oder 201 (fehlt).
+10. **Archiv tageweise** (SUITE.md 9g): `archivedSlots()` fragt je Kalendertag ab, den Vorwert
+    nur im 12-h-Fenster, nie ab Zeitstempel 0. `false` = kein Logging → keine Historie.
 8. **Quellen-/Zonenwechsel verwirft den Speicher** — keine gemischte Kurve.
 9. **Sprachregel:** alles Nutzersichtbare deutsch, Datum TT.MM.JJJJ (Store-Checkliste 9b),
    keine eigene Anlage als Norm (Zone ist Einstellung, keine Anlagendaten im Modul).

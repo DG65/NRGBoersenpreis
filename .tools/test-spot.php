@@ -53,10 +53,13 @@ $GLOBALS['AC'] = [];        // vid => [['TimeStamp' => ts, 'Value' => v], ...]
 $GLOBALS['AC_APPLY'] = 0;
 function IPS_GetInstanceListByModuleID(string $guid): array { return $guid === '{43192F0B-135B-4CE7-A0A7-1475603F3060}' ? $GLOBALS['ARCHIVES'] : []; }
 function IPS_ApplyChanges(int $id): bool { $GLOBALS['AC_APPLY']++; return true; }
+function IPS_InstanceExists(int $id): bool { return true; }
+$GLOBALS['AC_CALLS'] = []; // [start, end, limit] je AC_GetLoggedValues-Aufruf (SUITE.md 9g)
 function AC_GetLoggingStatus(int $a, int $v): bool { return $GLOBALS['AC_LOG'][$v] ?? false; }
 function AC_SetLoggingStatus(int $a, int $v, bool $s): bool { $GLOBALS['AC_LOG'][$v] = $s; return true; }
 function AC_GetLoggedValues(int $a, int $v, int $start, int $end, int $limit)
 {
+    $GLOBALS['AC_CALLS'][] = [$start, $end, $limit];
     $rows = array_values(array_filter($GLOBALS['AC'][$v] ?? [], fn($r) => $r['TimeStamp'] >= $start && ($end === 0 || $r['TimeStamp'] <= $end)));
     usort($rows, fn($x, $y) => $y['TimeStamp'] <=> $x['TimeStamp']); // neueste zuerst
     return array_slice($rows, 0, $limit > 0 ? $limit : 10000);
@@ -310,7 +313,7 @@ $GLOBALS['LOG'] = [];
 clock('2026-09-12 13:05:00');
 $GLOBALS['HTTP'][] = resp(404, 'no content available');
 $r = $m->Update();
-check('404: ⚠️-Text, Speicher bleibt (96), Status 202', str_starts_with($r, '⚠️') && str_contains($r, 'bleiben gültig') && count($m->GetPriceCurve()) === 96 && $m->status === 202, $r . ' / ' . $m->status);
+check('404: ⚠️-Text, Speicher bleibt (96), Status bleibt 102 (kein Fehlstatus für Watchdogs, SUITE.md 9d), Kopfzeile ⚠️', str_starts_with($r, '⚠️') && str_contains($r, 'bleiben gültig') && count($m->GetPriceCurve()) === 96 && $m->status === 102 && str_starts_with($m->call('fetchStatusLine'), '⚠️'), $r . ' / ' . $m->status);
 check('404 einmal dauerhaft geloggt', count($GLOBALS['LOG']) === 1 && str_contains($GLOBALS['LOG'][0], 'HTTP 404'), implode(' | ', $GLOBALS['LOG']));
 clock('2026-09-12 13:20:00');
 $GLOBALS['HTTP'][] = resp(404, 'no content available');
@@ -391,7 +394,7 @@ $f = form($m);
 $caps = array_map(fn($e) => $e['caption'] ?? '', $f['elements']);
 check('Reihenfolge: Zweck → Neu → Doku → Datenquelle → Börsenpreise → Rückmeldungen → Über', ($f['elements'][0]['name'] ?? '') === 'PurposeIntroPanel' && ($f['elements'][1]['name'] ?? '') === 'NewsPanel'
     && str_contains($caps[2], 'Dokumentation') && str_contains($caps[3], 'Datenquelle') && str_contains($caps[4], 'Börsenpreise') && ($f['elements'][5]['name'] ?? '') === 'ForumHintPanel' && str_contains($caps[6], 'Über dieses Modul'), implode(' | ', $caps));
-check('Status-Codes 102/201/202 beschriftet', array_column($f['status'], 'code') === [102, 201, 202]);
+check('Status-Codes 102/201 beschriftet (kein Warnstatus > 200 für harmlose Abruffehler)', array_column($f['status'], 'code') === [102, 201]);
 $txt = formText($f);
 check('Kopfzeile ✅ mit Zeitpunkt TT.MM.JJJJ, Übersicht mit Heute/Morgen', str_contains($txt, '✅ Zuletzt abgerufen 12.09.2026 13:10:00 Uhr') && str_contains($txt, 'Heute: 96 Viertelstunden') && str_contains($txt, 'Morgen: 96 Viertelstunden'));
 check('Quellennennung CC BY 4.0 aus der Antwort übernommen', str_contains($txt, 'CC BY 4.0') && str_contains($txt, 'SMARD'));
@@ -469,6 +472,9 @@ check('Ausschnitt 12:05–13:00: auf Viertelstunden gerundet (12:00–13:00), We
 check('Vor dem ersten Archiveintrag: keine Einträge (nichts erfunden)', $m->GetPriceHistory(ts('2026-04-30 00:00:00'), ts('2026-05-01 00:00:00')) === []);
 check('Zukunft ohne veröffentlichte Preise: keine Einträge', $m->GetPriceHistory(ts('2026-05-03 00:00:00'), ts('2026-05-04 00:00:00')) === []);
 check('Leerer oder verkehrter Zeitraum: leer', $m->GetPriceHistory(ts('2026-05-01 12:00:00'), ts('2026-05-01 12:00:00')) === [] && $m->GetPriceHistory(ts('2026-05-02 00:00:00'), ts('2026-05-01 00:00:00')) === []);
+$GLOBALS['AC_CALLS'] = [];
+$m->GetPriceHistory(ts('2026-04-28 06:00:00'), ts('2026-05-02 06:00:00'));
+check('Archiv tageweise abgefragt (5 Tagesfenster + 1 Vorwert), nie seit Epoche, keins länger als ein Tag (SUITE.md 9g)', count($GLOBALS['AC_CALLS']) === 6 && count(array_filter($GLOBALS['AC_CALLS'], fn($c) => $c[0] <= 0 || $c[1] - $c[0] > 90000)) === 0, json_encode($GLOBALS['AC_CALLS']));
 $lastChange = intdiv(max(array_column($GLOBALS['AC'][$vid], 'TimeStamp')), 900) * 900;
 clock('2026-05-02 20:00:00');
 $h5 = $m->GetPriceHistory(ts('2026-05-02 00:00:00'), ts('2026-05-02 20:00:00'));

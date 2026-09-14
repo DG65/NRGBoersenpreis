@@ -3,6 +3,19 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.2.1] - 2026-09-14
+
+### Changed
+- Store-Review-Checkliste (SUITE.md 9c/9d/9g) für den Store-Start nachgezogen:
+  - **Status:** Ein gescheiterter Abruf bei gültigen Preisen (Ratenlimit, Quelle kurz weg) setzt
+    keinen Warnstatus 202 mehr — Watchdogs sehen nur den Instanzstatus. Die Instanz bleibt 102,
+    der Fehler steht im Formular und einmal im Meldungsprotokoll. 201 nur, wenn für die laufende
+    Viertelstunde kein Preis vorliegt.
+  - **Archiv:** `GetPriceHistory` fragt das Archiv tageweise ab und sucht den Wert vor Beginn nur
+    im 12-Stunden-Fenster, nie „seit Epoche“ (Grenze von ~50 000 gelesenen Werten).
+  - **Neuladen:** Rückgaben von `ReadAttribute…`/`ReadProperty…` werden gecastet, der
+    Kernel-Start prüft zusätzlich, ob die Instanz existiert.
+
 ## [0.2.0] - 2026-09-13
 
 ### Added
