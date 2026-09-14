@@ -141,5 +141,5 @@ ENTSO-E Transparency Platform (EPEX-Spot-Day-Ahead-Ergebnisse); aWATTar GmbH.
 
 ---
 
-> Teil des **NRG-Stack** — welche Modulstände zusammenpassen, steht im
-> [Kompatibilitäts-Manifest](https://github.com/DG65/NRGEMS/blob/main/SUITE.md).
+Teil des **NRG-Stack** von DG65 — eigenständige Energie-Module für IP-Symcon, die sich
+gegenseitig automatisch finden, aber keines voraussetzen.
