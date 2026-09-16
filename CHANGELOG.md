@@ -3,6 +3,12 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.6.1] - 2026-09-16
+
+### Changed
+- Forum-Hinweis („💬 Feedback im Symcon-Forum“) verweist jetzt auf den veröffentlichten
+  Vorstellungs-Thread im Symcon-Forum; die Warnzeile „Platzhalter-Link“ ist entfallen.
+
 ## [0.6.0] - 2026-09-14
 
 ### Changed
