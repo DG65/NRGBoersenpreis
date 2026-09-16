@@ -127,7 +127,8 @@ Button auf sichtbare Rückmeldung prüfen, einen Folgetag-Abruf nach 12:45 Uhr a
 
 ## Branch-Modell
 
-`main` + `beta` tragen nur das Grundgerüst (LICENSE, README), gebaut und gepusht wird zuerst
+`main` trägt nur das Grundgerüst (LICENSE, README). **`beta` = Store-Kanal Beta („NRG-Stack Börsenpreis“),
+seit 16.09.2026 per Fast-Forward auf 0.6.1 nachgezogen (Dietmar „ja“).** Gebaut und gepusht wird zuerst
 auf **`ems-integration`** (SUITE.md „Verbund-weiter Arbeitsbranch", Dietmar 13.09.2026). Nach
 Bewährung Merge nach `beta`; `beta`→`main` entscheidet Dietmar. `LICENSE_URL` zeigt auf `main`
 (PolyForm von Anfang an).
