@@ -169,7 +169,11 @@ function fresh(int $source = 0, string $zone = 'DE-LU'): SpotTest
     $m->props['BiddingZone'] = $zone;
     return $m;
 }
-/** Nachbildung von EMS parsePT15M() (EMS/module.php): Preis → Viertelstunde seines start, nur Kalendertag $ymd. */
+/**
+ * Nachbildung von EMS parsePT15M() (EMS/module.php, Zeile 4945 ff., gegengelesen 20.09.2026):
+ * Preis → Viertelstunde seines start nach WANDUHR, nur Kalendertag $ymd. Am 25-Stunden-Tag gilt
+ * bei EMS der ERSTE Preis der doppelten Stunde 02-03, der zweite überschreibt ihn nicht.
+ */
 function emsSlots(array $curve, string $ymd): array
 {
     $p = array_fill(0, 96, null);
@@ -177,7 +181,7 @@ function emsSlots(array $curve, string $ymd): array
         $t = (int)$e['start'];
         if (date('Y-m-d', $t) !== $ymd) { continue; }
         $slot = (int)floor(((int)date('H', $t) * 60 + (int)date('i', $t)) / 15);
-        if ($slot >= 0 && $slot < 96) { $p[$slot] = (float)$e['price'] / 100.0; }
+        if ($slot >= 0 && $slot < 96 && $p[$slot] === null) { $p[$slot] = (float)$e['price'] / 100.0; }
     }
     return $p;
 }
@@ -843,9 +847,10 @@ $zwei = array_values(array_filter($c, fn($s) => date('H:i', $s['start']) === '02
 check('02:00 zweimal: erst UTC+2 (00:00Z), dann UTC+1 (01:00Z), 3600 s auseinander', count($zwei) === 2
     && gmdate('H:i', $zwei[0]['start']) === '00:00' && gmdate('H:i', $zwei[1]['start']) === '01:00' && $zwei[1]['start'] - $zwei[0]['start'] === 3600);
 check('Preise sitzen auf dem Zeitpunkt der Quelle (Index 8 = 02:00 CEST, Index 12 = 02:00 CET)', abs($zwei[0]['price'] - 0.8) < 1e-9 && abs($zwei[1]['price'] - 1.2) < 1e-9);
-// EMS parsePT15M kennt nur 96 Fächer je Kalendertag: die zweite 02-Stunde überschreibt die erste.
-check('EMS-Nachbildung: 96 Fächer gefüllt, Fach 02:00 trägt den CET-Wert', count(array_filter(emsSlots($c, '2026-10-25'), fn($x) => $x !== null)) === 96
-    && abs(emsSlots($c, '2026-10-25')[8] - 0.012) < 1e-9);
+// EMS' Tagesplan kennt nur 96 Fächer nach Wanduhr; die zweite 02-Stunde ist dort nicht abbildbar,
+// es gilt der ERSTE Preis (EMS 20.09.2026). Die §-51-Pflicht wertet dort ohnehin über start/end.
+check('EMS-Nachbildung Tagesplan: 96 Fächer gefüllt, Fach 02:00 behält den CEST-Wert', count(array_filter(emsSlots($c, '2026-10-25'), fn($x) => $x !== null)) === 96
+    && abs(emsSlots($c, '2026-10-25')[8] - 0.008) < 1e-9, var_export(emsSlots($c, '2026-10-25')[8], true));
 clock('2026-03-30 10:00:00');
 $m2 = fresh();
 $GLOBALS['ARCHIVES'] = [4711];
