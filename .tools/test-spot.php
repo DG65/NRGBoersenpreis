@@ -823,6 +823,48 @@ check('Defekte Geschwister-Instanz: kein Absturz, die übrigen übernehmen trotz
 $GLOBALS['INSTANCES'] = [];
 $GLOBALS['SPOT_OBJ'] = [];
 
+// ---------------------------------------------------------------------------
+heading('26. Zeitumstellung 2026 — 25.10. (100) im Abruf, 29.03. (92) im Rückblick (Bitte EMS 20.09.2026)');
+/** Energy-Charts-Antwort bauen: $n Viertelstunden ab $start, Preis = Index in EUR/MWh. */
+$ecSynth = function (int $start, int $n): string {
+    $u = []; $p = [];
+    for ($i = 0; $i < $n; $i++) { $u[] = $start + 900 * $i; $p[] = (float)$i; }
+    return json_encode(['unix_seconds' => $u, 'price' => $p, 'unit' => 'EUR / MWh', 'license_info' => 'CC BY 4.0']);
+};
+clock('2026-10-25 09:00:00');
+$m = fresh();
+$GLOBALS['HTTP'][] = ok($ecSynth(ts('2026-10-25 00:00:00'), 100));
+$m->ApplyChanges();
+$c = $m->GetPriceCurve();
+check('25.10.2026: 100 Viertelstunden, lückenlos, 00:00 bis 24:00 (25-Stunden-Tag)', count($c) === 100 && contiguous($c)
+    && $c[0]['start'] === ts('2026-10-25 00:00:00') && end($c)['end'] === ts('2026-10-26 00:00:00') && end($c)['end'] - $c[0]['start'] === 90000, count($c) . ' Slots');
+check('Jeder Slot 900 s, auch über die Rückstellung', count(array_filter($c, fn($s) => $s['end'] - $s['start'] !== 900)) === 0);
+$zwei = array_values(array_filter($c, fn($s) => date('H:i', $s['start']) === '02:00'));
+check('02:00 zweimal: erst UTC+2 (00:00Z), dann UTC+1 (01:00Z), 3600 s auseinander', count($zwei) === 2
+    && gmdate('H:i', $zwei[0]['start']) === '00:00' && gmdate('H:i', $zwei[1]['start']) === '01:00' && $zwei[1]['start'] - $zwei[0]['start'] === 3600);
+check('Preise sitzen auf dem Zeitpunkt der Quelle (Index 8 = 02:00 CEST, Index 12 = 02:00 CET)', abs($zwei[0]['price'] - 0.8) < 1e-9 && abs($zwei[1]['price'] - 1.2) < 1e-9);
+// EMS parsePT15M kennt nur 96 Fächer je Kalendertag: die zweite 02-Stunde überschreibt die erste.
+check('EMS-Nachbildung: 96 Fächer gefüllt, Fach 02:00 trägt den CET-Wert', count(array_filter(emsSlots($c, '2026-10-25'), fn($x) => $x !== null)) === 96
+    && abs(emsSlots($c, '2026-10-25')[8] - 0.012) < 1e-9);
+clock('2026-03-30 10:00:00');
+$m2 = fresh();
+$GLOBALS['ARCHIVES'] = [4711];
+$GLOBALS['HTTP'][] = ok($ecSynth(ts('2026-03-30 00:00:00'), 96));
+$m2->ApplyChanges();
+$vid = IPS_GetObjectIDByIdent('CurrentPrice', $m2->InstanceID);
+$GLOBALS['AC_LOG'][$vid] = true;
+$GLOBALS['AC'][$vid] = [];
+for ($t = ts('2026-03-29 00:00:00'), $i = 0; $t < ts('2026-03-30 00:00:00'); $t += 900, $i++) { $GLOBALS['AC'][$vid][] = ['TimeStamp' => $t, 'Value' => $i / 10]; }
+$h = $m2->GetPriceHistory(ts('2026-03-29 00:00:00'), ts('2026-03-30 00:00:00'));
+check('29.03.2026 im Rückblick: 92 Viertelstunden, lückenlos, 23-Stunden-Tag', count($h) === 92 && contiguous($h)
+    && $h[0]['start'] === ts('2026-03-29 00:00:00') && end($h)['end'] === ts('2026-03-30 00:00:00') && end($h)['end'] - $h[0]['start'] === 82800, count($h) . ' Slots');
+check('Rückblick überspringt 02:xx, 01:45 folgt direkt 03:00, quelle=archiv', count(array_filter($h, fn($s) => date('H', $s['start']) === '02')) === 0
+    && count(array_filter($h, fn($s) => date('H:i', $s['start']) === '03:00')) === 1 && $h[0]['quelle'] === 'archiv');
+$treffer = 0;
+foreach ($h as $s) { foreach ($GLOBALS['AC'][$vid] as $r) { if ($r['TimeStamp'] === $s['start'] && abs($r['Value'] - $s['price']) < 1e-9) { $treffer++; } } }
+check('Jeder Rückblick-Preis steht auf seinem Archiv-Zeitpunkt', $treffer === 92, $treffer . '/92');
+$GLOBALS['ARCHIVES'] = [];
+
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
     echo "OK — alle Prüfungen bestanden.\n";
