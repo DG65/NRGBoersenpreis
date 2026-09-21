@@ -17,6 +17,7 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 - **Wert kommt automatisch: Eingabefelder ersetzt** (SUITE.md, 21.09.2026): Liefert Tibber Grid
   Rewards den Endpreis, sind die Tarif-Felder ausgeblendet und eine 🔗-Zeile zeigt Preis und Quelle.
   Kein Wert wird per `UpdateFormField('value')` in ein Feld geschrieben.
+  Die 🔗-Zeile ist grün (`color` 0x2E8B3D, SUITE.md Commit 64b5d1f), sonst Standardfarbe.
 
 ### Fixed
 - **Mehrere Tibber-Instanzen:** Bisher nahm das Modul stillschweigend die erste. Jetzt ⚠️ mit

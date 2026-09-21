@@ -820,19 +820,20 @@ $st = $findEl($f, 'MarketSourceStatus')['caption'] ?? '';
 check('✅ nennt Instanz, Name, Vertrag, übernommenen Wert und Horizont', str_contains($st, '✅ Preis aus Tibber Grid Rewards (#777 „Tibber Zuhause“, Vertrag 1.1) übernommen: Endpreis jetzt 31,50 ct/kWh, Tibber-Preise bis 12.09.2026 11:00 Uhr.')
     && str_contains($st, 'Für Viertelstunden ohne Tibber-Preis gilt:'), $st);
 check('🔗-Zeile mit Wert und Quelle, Tarif-Felder ausgeblendet (nicht bloß erklärt)', str_contains($findEl($f, 'TibberAutoLine')['caption'] ?? '', '🔗 Endpreis: 31,50 ct/kWh jetzt (automatisch von Tibber Grid Rewards #777)')
-    && ($findEl($f, 'TibberAutoLine')['visible'] ?? false) === true && count(array_filter($tariffNames, fn($n) => ($findEl($f, $n)['visible'] ?? true) !== false)) === 0);
+    && ($findEl($f, 'TibberAutoLine')['visible'] ?? false) === true && ($findEl($f, 'TibberAutoLine')['color'] ?? null) === 0x2E8B3D && count(array_filter($tariffNames, fn($n) => ($findEl($f, $n)['visible'] ?? true) !== false)) === 0);
 $m->fieldUpdates = [];
 $m->UIRefreshMarket(false, false, 0, 0);
 $upd = []; foreach ($m->fieldUpdates as [$n, $pp, $v]) { $upd[$n][$pp] = $v; }
 check('onChange „Tibber nutzen“ aus: Zeile folgt sofort (ℹ️ abgewählt), Tarif-Felder wieder sichtbar, 🔗-Zeile weg, Speicherstand unberührt',
     str_contains($upd['MarketSourceStatus']['caption'] ?? '', 'ℹ️ Tibber Grid Rewards abgewählt') && ($upd['TariffEnabled']['visible'] ?? null) === true
-    && ($upd['TibberAutoLine']['visible'] ?? null) === false && $m->props['UseTibberPrice'] === true, json_encode($upd, JSON_UNESCAPED_UNICODE));
+    && ($upd['TibberAutoLine']['visible'] ?? null) === false && ($upd['TibberAutoLine']['color'] ?? null) === -1 && $m->props['UseTibberPrice'] === true, json_encode($upd, JSON_UNESCAPED_UNICODE));
 check('Nie einen automatischen Wert per UpdateFormField(value) in ein Eingabefeld', count(array_filter($m->fieldUpdates, fn($u) => $u[1] === 'value')) === 0);
 $m->fieldUpdates = [];
 $m->UIRefreshMarket(true, true, 0, 0);
 $upd = []; foreach ($m->fieldUpdates as [$n, $pp, $v]) { $upd[$n][$pp] = $v; }
 check('onChange wieder an: ✅, Rückfall „eigener Tarif“ folgt dem Häkchen statt dem Speicherstand', str_contains($upd['MarketSourceStatus']['caption'] ?? '', '✅ Preis aus Tibber Grid Rewards (#777')
-    && str_contains($upd['MarketSourceStatus']['caption'] ?? '', '🧾 Preis aus deinem eigenen Tarif') && ($upd['TariffEnabled']['visible'] ?? null) === false);
+    && str_contains($upd['MarketSourceStatus']['caption'] ?? '', '🧾 Preis aus deinem eigenen Tarif') && ($upd['TariffEnabled']['visible'] ?? null) === false
+    && ($upd['TibberAutoLine']['color'] ?? null) === 0x2E8B3D);
 $GLOBALS['INSTANCES']['{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}'] = [777, 778];
 $f = form($m)['elements'];
 $st = $findEl($f, 'MarketSourceStatus')['caption'] ?? '';

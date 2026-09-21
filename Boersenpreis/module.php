@@ -97,6 +97,8 @@ class Boersenpreis extends IPSModule
     private const VAT_PERCENT     = 19.0;
     // Tibber Grid Rewards: liefert den echten Tibber-Endkundenpreis des Nutzers (TIBBERGR_GetPriceCurve).
     private const TIBBERGR_GUID   = '{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}';
+    // 🔗-Zeilen (automatisch übernommen) grün, sonst Standardfarbe (SUITE.md, Commit 64b5d1f).
+    private const COLOR_AUTO = 0x2E8B3D;
     // Tarif-Eingaben im Panel „Symcon Energie Manager & Tarif“: ausgeblendet, solange der Endpreis
     // automatisch von Tibber Grid Rewards kommt (SUITE.md „Wert kommt automatisch“, 21.09.2026).
     private const TARIFF_FIELDS = [
@@ -1176,6 +1178,7 @@ class Boersenpreis extends IPSModule
         $auto = $this->tibberAutoLine($info);
         $this->UpdateFormField('TibberAutoLine', 'caption', $auto);
         $this->UpdateFormField('TibberAutoLine', 'visible', $auto !== '');
+        $this->UpdateFormField('TibberAutoLine', 'color', $auto !== '' ? self::COLOR_AUTO : -1);
         $this->UpdateFormField('TibberInstance', 'visible', $UseTibberPrice && count($info['list']) > 1);
         foreach (self::TARIFF_FIELDS as $name) {
             $this->UpdateFormField($name, 'visible', $auto === '');
@@ -1641,7 +1644,7 @@ class Boersenpreis extends IPSModule
                 ['type' => 'Label', 'caption' => 'ℹ️ Nur wenn das Modul Tibber Grid Rewards installiert ist: dann kommt dein echter Tibber-Endpreis von dort (empfohlen für Tibber-Kunden).'],
                 ['type' => 'Select', 'name' => 'TibberInstance', 'caption' => 'Tibber-Instanz', 'width' => self::FIELD_WIDTH, 'options' => $instOptions,
                     'visible' => count($info['list']) > 1 && $info['state'] !== 'off', 'onChange' => $refresh],
-                ['type' => 'Label', 'name' => 'TibberAutoLine', 'caption' => $auto, 'visible' => !$show],
+                ['type' => 'Label', 'name' => 'TibberAutoLine', 'caption' => $auto, 'visible' => !$show, 'color' => $show ? -1 : self::COLOR_AUTO],
                 ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen', 'visible' => $show, 'onChange' => $refresh],
                 ['type' => 'Label', 'name' => 'TariffIntro', 'visible' => $show, 'caption' => 'z. B. für einen anderen dynamischen Tarif. Alle Beträge netto in ct/kWh — die Mehrwertsteuer rechnet das Modul selbst hinzu.'],
                 // Minimum 0: Bei negativem Minimum zeigte die Konsole für den Wert 0 das Minimum an (−20, Live-Fund 14.09.2026).
