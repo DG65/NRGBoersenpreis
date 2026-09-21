@@ -3,6 +3,26 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.7.0] - 2026-09-21
+
+### Changed
+- **Verbindung zu Tibber Grid Rewards sichtbar** (SUITE.md „Verbund-Verbindungen im Formular
+  sichtbar machen“, verbundweit ab 21.09.2026): Die Statuszeile im Panel „Symcon Energie Manager &
+  Tarif“ nennt jetzt ✅ Instanz, Name, Vertragsversion, den übernommenen Endpreis und bis wann Tibber
+  Preise liefert; ℹ️ „nicht gefunden“ bzw. „abgewählt“ ausdrücklich mit dem, was dann gilt; ⚠️ bei
+  unbrauchbarer Antwort (auch: keine Slots mit basis „endkunde“).
+- **Zeile folgt der Auswahl:** „Preis von Tibber Grid Rewards nutzen“, „Eigenen Tarif einrechnen“,
+  „Tibber-Instanz“ und „Quelle“ frischen Statuszeile und Felder per `onChange` sofort auf
+  (`SPOT_UIRefreshMarket`), nicht erst nach „Übernehmen“.
+- **Wert kommt automatisch: Eingabefelder ersetzt** (SUITE.md, 21.09.2026): Liefert Tibber Grid
+  Rewards den Endpreis, sind die Tarif-Felder ausgeblendet und eine 🔗-Zeile zeigt Preis und Quelle.
+  Kein Wert wird per `UpdateFormField('value')` in ein Feld geschrieben.
+
+### Fixed
+- **Mehrere Tibber-Instanzen:** Bisher nahm das Modul stillschweigend die erste. Jetzt ⚠️ mit
+  Auswahlfeld „Tibber-Instanz“ (neue Property `TibberInstance`, 0 = automatisch bei genau einer);
+  bis zur Auswahl wird keine genutzt.
+
 ## [0.6.1] - 2026-09-16
 
 ### Changed

@@ -51,6 +51,8 @@ function IPS_SetVariableProfileText(string $n, string $p, string $s): bool { $GL
 function IPS_SetVariableProfileAssociation(string $n, $v, string $c, string $i, int $col): bool { $GLOBALS['PROFILES'][$n]['assoc'][(string)$v] = $c; return true; }
 function IPS_LogMessage(string $s, string $m): bool { $GLOBALS['LOG'][] = "$s: $m"; return true; }
 function IPS_GetLibrary(string $guid): array { return ['Version' => '0.0.0-test', 'Build' => 0]; }
+$GLOBALS['NAMES'] = [];   // Objektnamen für IPS_GetName (Partnerinstanzen)
+function IPS_GetName(int $id): string { return $GLOBALS['NAMES'][$id] ?? ('Objekt #' . $id); }
 // Archive Control: wie Symcon speichert das Archiv nur WERTÄNDERUNGEN (siehe IPSModule::SetValue).
 $GLOBALS['ARCHIVES'] = [];  // vorhandene Archiv-Instanzen
 $GLOBALS['AC_LOG'] = [];    // vid => Archivierung an?
@@ -462,7 +464,7 @@ $walk = function (array $items) use (&$walk, &$inputs) {
 $m3f = fresh(3); // alle Felder sichtbar machen ist egal — die Prüfung gilt für jedes Feld im Formular
 $walk(form($m3f)['elements']);
 $bad = array_filter($inputs, fn($i) => mb_strlen($i['caption'] ?? '') > 26 || !isset($i['width']));
-check('Eingabefelder: Beschriftung ≤ 26 Zeichen und Breite gesetzt (' . count($inputs) . ' Felder)', count($inputs) === 10 && count($bad) === 0, implode(' | ', array_map(fn($i) => ($i['name'] ?? '?') . ': ' . ($i['caption'] ?? ''), $bad)));
+check('Eingabefelder: Beschriftung ≤ 26 Zeichen und Breite gesetzt (' . count($inputs) . ' Felder)', count($inputs) === 11 && count($bad) === 0, implode(' | ', array_map(fn($i) => ($i['name'] ?? '?') . ': ' . ($i['caption'] ?? ''), $bad)));
 $opts = [];
 foreach ($inputs as $i) { foreach ($i['options'] ?? [] as $o) { $opts[] = $o['caption']; } }
 $labels = [];
@@ -772,7 +774,7 @@ $GLOBALS['INSTANCES']['{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}'] = [777];
 $GLOBALS['TIBBER_CURVE'] = [['start' => ts('2026-09-12 10:00:00'), 'end' => ts('2026-09-12 11:00:00'), 'price' => 31.5, 'basis' => 'endkunde', 'netzentgelt' => 'enthalten', 'level' => null, 'contractVersion' => '1.1']];
 $m->Tick();
 check('Tibber Grid Rewards installiert: 10:00–11:00 sein echter Endpreis (31,5), 11:00 wieder eigener Tarif', $mdAt($m, '2026-09-12 10:00:00') === 31.5 && $mdAt($m, '2026-09-12 10:45:00') === 31.5 && abs($mdAt($m, '2026-09-12 11:00:00') - round(($ec['price'][44] / 10 + 1.0 + 4.997) * 1.19, 4)) < 1e-9);
-check('Statuszeile nennt Tibber Grid Rewards mit Instanz', str_contains(formText(form($m)), '✅ Preis aus Tibber Grid Rewards (#777)'));
+check('Statuszeile nennt Tibber Grid Rewards mit Instanz', str_contains(formText(form($m)), '✅ Preis aus Tibber Grid Rewards (#777 '));
 $m->props['UseTibberPrice'] = false;
 $m->ApplyChanges();
 check('Abgewählt: eigener Tarif statt Tibber-Preis', abs($mdAt($m, '2026-09-12 10:00:00') - round(($ec['price'][40] / 10 + 1.0 + 4.997) * 1.19, 4)) < 1e-9);
@@ -789,6 +791,61 @@ $m->ApplyChanges();
 check('Tibber wirft (z. B. lädt neu): kein Absturz, eigener Tarif, Meldung im Formular', $mdAt($m, '2026-09-12 10:00:00') !== null && str_contains(formText(form($m)), 'antwortet nicht'));
 $GLOBALS['TIBBER_THROW'] = false;
 $GLOBALS['INSTANCES'] = [];
+
+heading('18b. Verbindung zu Tibber Grid Rewards sichtbar (SUITE.md „Verbund-Verbindungen“ + „Wert kommt automatisch“, 21.09.2026)');
+/** Formular-Element per Name rekursiv suchen (auch in ExpansionPanel/RowLayout/Popup). */
+$findEl = function (array $els, string $name) use (&$findEl) {
+    foreach ($els as $e) {
+        if (($e['name'] ?? '') === $name) { return $e; }
+        $sub = array_merge($e['items'] ?? [], $e['popup']['items'] ?? []);
+        if ($sub && ($r = $findEl($sub, $name)) !== null) { return $r; }
+    }
+    return null;
+};
+$tariffNames = ['TariffEnabled', 'TariffBeschaffung', 'NetzArbeitspreis', 'Modul3Enabled', 'NetzWindows', 'Modul3Quarters', 'TariffHelp'];
+clock('2026-09-12 10:00:00');
+$m = fresh();
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$m->ApplyChanges();
+$f = form($m)['elements'];
+$st = $findEl($f, 'MarketSourceStatus')['caption'] ?? '';
+check('ℹ️ Tibber nicht installiert: Zeile sagt „nicht gefunden“ und was gilt', str_contains($st, 'ℹ️ Tibber Grid Rewards nicht gefunden') && str_contains($st, 'Reiner Börsenpreis'), $st);
+check('Ohne Tibber: Tarif-Felder sichtbar, keine 🔗-Zeile, keine Instanzauswahl', count(array_filter($tariffNames, fn($n) => ($findEl($f, $n)['visible'] ?? true) !== true)) === 0
+    && ($findEl($f, 'TibberAutoLine')['visible'] ?? true) === false && ($findEl($f, 'TibberInstance')['visible'] ?? true) === false);
+$GLOBALS['INSTANCES']['{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}'] = [777];
+$GLOBALS['NAMES'][777] = 'Tibber Zuhause';
+$GLOBALS['TIBBER_CURVE'] = [['start' => ts('2026-09-12 10:00:00'), 'end' => ts('2026-09-12 11:00:00'), 'price' => 31.5, 'basis' => 'endkunde', 'netzentgelt' => 'enthalten', 'level' => null, 'contractVersion' => '1.1']];
+$f = form($m)['elements'];
+$st = $findEl($f, 'MarketSourceStatus')['caption'] ?? '';
+check('✅ nennt Instanz, Name, Vertrag, übernommenen Wert und Horizont', str_contains($st, '✅ Preis aus Tibber Grid Rewards (#777 „Tibber Zuhause“, Vertrag 1.1) übernommen: Endpreis jetzt 31,50 ct/kWh, Tibber-Preise bis 12.09.2026 11:00 Uhr.')
+    && str_contains($st, 'Für Viertelstunden ohne Tibber-Preis gilt:'), $st);
+check('🔗-Zeile mit Wert und Quelle, Tarif-Felder ausgeblendet (nicht bloß erklärt)', str_contains($findEl($f, 'TibberAutoLine')['caption'] ?? '', '🔗 Endpreis: 31,50 ct/kWh jetzt (automatisch von Tibber Grid Rewards #777)')
+    && ($findEl($f, 'TibberAutoLine')['visible'] ?? false) === true && count(array_filter($tariffNames, fn($n) => ($findEl($f, $n)['visible'] ?? true) !== false)) === 0);
+$m->fieldUpdates = [];
+$m->UIRefreshMarket(false, false, 0, 0);
+$upd = []; foreach ($m->fieldUpdates as [$n, $pp, $v]) { $upd[$n][$pp] = $v; }
+check('onChange „Tibber nutzen“ aus: Zeile folgt sofort (ℹ️ abgewählt), Tarif-Felder wieder sichtbar, 🔗-Zeile weg, Speicherstand unberührt',
+    str_contains($upd['MarketSourceStatus']['caption'] ?? '', 'ℹ️ Tibber Grid Rewards abgewählt') && ($upd['TariffEnabled']['visible'] ?? null) === true
+    && ($upd['TibberAutoLine']['visible'] ?? null) === false && $m->props['UseTibberPrice'] === true, json_encode($upd, JSON_UNESCAPED_UNICODE));
+check('Nie einen automatischen Wert per UpdateFormField(value) in ein Eingabefeld', count(array_filter($m->fieldUpdates, fn($u) => $u[1] === 'value')) === 0);
+$m->fieldUpdates = [];
+$m->UIRefreshMarket(true, true, 0, 0);
+$upd = []; foreach ($m->fieldUpdates as [$n, $pp, $v]) { $upd[$n][$pp] = $v; }
+check('onChange wieder an: ✅, Rückfall „eigener Tarif“ folgt dem Häkchen statt dem Speicherstand', str_contains($upd['MarketSourceStatus']['caption'] ?? '', '✅ Preis aus Tibber Grid Rewards (#777')
+    && str_contains($upd['MarketSourceStatus']['caption'] ?? '', '🧾 Preis aus deinem eigenen Tarif') && ($upd['TariffEnabled']['visible'] ?? null) === false);
+$GLOBALS['INSTANCES']['{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}'] = [777, 778];
+$f = form($m)['elements'];
+$st = $findEl($f, 'MarketSourceStatus')['caption'] ?? '';
+check('⚠️ zwei Instanzen, keine gewählt: nicht raten, Auswahl sichtbar, Tarif-Felder sichtbar', str_contains($st, '⚠️ Mehrere Instanzen von Tibber Grid Rewards gefunden (#777, #778)')
+    && ($findEl($f, 'TibberInstance')['visible'] ?? false) === true && ($findEl($f, 'TariffEnabled')['visible'] ?? false) === true, $st);
+$m->Tick();
+check('… und der Energie Manager bekommt dann NICHT stillschweigend einen Tibber-Preis', $mdAt($m, '2026-09-12 10:00:00') !== 31.5);
+$m->props['TibberInstance'] = 778;
+$m->Tick();
+check('Instanz #778 gewählt: Tibber-Preis wird genutzt, Zeile nennt #778', $mdAt($m, '2026-09-12 10:00:00') === 31.5 && str_contains(formText(form($m)), '#778 '));
+$m->props['TibberInstance'] = 0;
+$GLOBALS['INSTANCES'] = [];
+$GLOBALS['NAMES'] = [];
 
 heading('19. Ausblenden über mehrere Instanzen teilen (SUITE.md, 14.09.2026)');
 $G = '{11BBF147-16A1-4332-82A3-29BB31154D03}';

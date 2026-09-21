@@ -52,7 +52,7 @@ class Boersenpreis extends IPSModule
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.6.0';
+    private const NEWS_VERSION = '0.7.0';
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
     // volle Breite selbst um, wie in allen Verbund-Modulen). Überbreite entsteht durch NEBENEINANDER
@@ -97,6 +97,12 @@ class Boersenpreis extends IPSModule
     private const VAT_PERCENT     = 19.0;
     // Tibber Grid Rewards: liefert den echten Tibber-Endkundenpreis des Nutzers (TIBBERGR_GetPriceCurve).
     private const TIBBERGR_GUID   = '{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}';
+    // Tarif-Eingaben im Panel „Symcon Energie Manager & Tarif“: ausgeblendet, solange der Endpreis
+    // automatisch von Tibber Grid Rewards kommt (SUITE.md „Wert kommt automatisch“, 21.09.2026).
+    private const TARIFF_FIELDS = [
+        'TariffEnabled', 'TariffIntro', 'TariffBeschaffung', 'TariffKonzession', 'NetzArbeitspreis', 'TariffTaxInfo',
+        'Modul3Enabled', 'NetzHT', 'NetzST', 'NetzNT', 'NetzWindows', 'Modul3Quarters', 'Modul3Hint', 'TariffHelp',
+    ];
 
     private const EC_URL      = 'https://api.energy-charts.info/price';
     private const AWATTAR_URL = [
@@ -138,6 +144,8 @@ class Boersenpreis extends IPSModule
         // Gemeinde und Anbieter verschieden — Beispielzahlen einer echten Anlage wären für jeden
         // anderen falsch (Lehre Tibber 2.8.1, keine eigene Anlage als Norm).
         $this->RegisterPropertyBoolean('UseTibberPrice', true);
+        // 0 = automatisch (genau eine Instanz); bei mehreren wird nicht geraten (SUITE.md, 21.09.2026).
+        $this->RegisterPropertyInteger('TibberInstance', 0);
         $this->RegisterPropertyBoolean('TariffEnabled', false);
         $this->RegisterPropertyFloat('TariffBeschaffung', 0.0);
         $this->RegisterPropertyFloat('TariffKonzession', 0.0);
@@ -988,19 +996,31 @@ class Boersenpreis extends IPSModule
      * Endkundenpreis von Tibber Grid Rewards, falls installiert und nicht abgewählt — Tibber kennt
      * den echten Preis des Nutzers genauer als jede eigene Rechnung (Empfehlung der Tibber-Sitzung,
      * 14.09.2026). Nur Slots mit basis 'endkunde', nur Vertrags-Hauptversion 1 (Update-Meldepflicht).
-     * Rückgabe: ['id' => Instanz, 'curve' => [[start, end, price brutto ct/kWh], …], 'problem' => Text].
+     * Rückgabe: ['id' => Instanz, 'curve' => [[start, end, price brutto ct/kWh], …], 'problem' => Text,
+     * 'state' => off|missing|ambiguous|problem|ok, 'list' => gefundene Instanzen, 'version' => Vertrag].
+     * $use/$chosen überschreiben die gespeicherten Einstellungen (Formular folgt der Auswahl vor „Übernehmen“).
      */
-    private function tibberGridRewardsInfo(): array
+    private function tibberGridRewardsInfo(?bool $use = null, ?int $chosen = null): array
     {
-        $info = ['id' => 0, 'curve' => [], 'problem' => ''];
-        if (!$this->ReadPropertyBoolean('UseTibberPrice') || !function_exists('TIBBERGR_GetPriceCurve')) {
+        $info = ['id' => 0, 'curve' => [], 'problem' => '', 'state' => 'off', 'list' => [], 'version' => ''];
+        if (!($use ?? $this->ReadPropertyBoolean('UseTibberPrice'))) {
             return $info;
         }
-        $list = IPS_GetInstanceListByModuleID(self::TIBBERGR_GUID);
-        if (count($list) === 0) {
+        $info['state'] = 'missing';
+        if (!function_exists('TIBBERGR_GetPriceCurve')) {
             return $info;
         }
-        $info['id'] = (int)$list[0];
+        $info['list'] = array_map('intval', IPS_GetInstanceListByModuleID(self::TIBBERGR_GUID));
+        if (count($info['list']) === 0) {
+            return $info;
+        }
+        $chosen = $chosen ?? $this->ReadPropertyInteger('TibberInstance');
+        if (count($info['list']) > 1 && !in_array($chosen, $info['list'], true)) {
+            $info['state'] = 'ambiguous';
+            return $info;
+        }
+        $info['state'] = 'problem';
+        $info['id'] = count($info['list']) > 1 ? $chosen : $info['list'][0];
         try {
             $curve = TIBBERGR_GetPriceCurve($info['id']);
         } catch (Throwable $e) {
@@ -1012,6 +1032,7 @@ class Boersenpreis extends IPSModule
             return $info;
         }
         $version = (string)($curve[0]['contractVersion'] ?? '1.0');
+        $info['version'] = $version;
         if ((int)explode('.', $version)[0] !== 1) {
             $info['problem'] = 'Dieses Modul benötigt eine Aktualisierung, um Tibber Grid Rewards zu nutzen (Vertrag 1.x erwartet, ' . $version . ' geliefert).';
             return $info;
@@ -1023,6 +1044,11 @@ class Boersenpreis extends IPSModule
             }
             $info['curve'][] = [(int)$c['start'], (int)$c['end'], (float)$c['price']];
         }
+        if (count($info['curve']) === 0) {
+            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') liefert keinen Endkundenpreis (basis „endkunde“).';
+            return $info;
+        }
+        $info['state'] = 'ok';
         return $info;
     }
 
@@ -1093,19 +1119,67 @@ class Boersenpreis extends IPSModule
     }
 
     /** Eine Zeile fürs Formular: woher der Preis in „Marktdaten (Energie Manager)“ gerade kommt. */
-    private function marketSourceStatus(): string
+    /**
+     * Statuszeile der Verbindung zu Tibber Grid Rewards + was für den Energie Manager tatsächlich gilt
+     * (SUITE.md „Verbund-Verbindungen im Formular sichtbar machen“, 21.09.2026): ✅ mit Instanz, Name,
+     * Vertragsversion und übernommenem Wert, ⚠️ verbunden aber unbrauchbar / mehrdeutig, ℹ️ nicht
+     * gefunden oder abgewählt. Parameter = Formularauswahl vor „Übernehmen“ (onChange).
+     */
+    private function marketSourceStatus(?array $info = null, ?bool $tariff = null, ?int $source = null): string
     {
-        $info = $this->tibberGridRewardsInfo();
-        $tariff = (bool)$this->ReadPropertyBoolean('TariffEnabled');
-        $fallback = $tariff ? 'deinem eigenen Tarif'
-            : ($this->source() === self::SOURCE_TIBBER ? 'Tibbers Endpreis aus der Tibber-Preisübersicht (PLZ ' . $this->postalCode() . ')' : 'dem reinen Börsenpreis');
-        if (count($info['curve']) > 0) {
-            return '✅ Preis aus Tibber Grid Rewards (#' . $info['id'] . ') — dein echter Tibber-Endpreis, soweit Tibber ihn schon kennt; sonst aus ' . $fallback . '.';
-        }
-        $line = $tariff ? '🧾 Preis aus deinem eigenen Tarif (Börsenpreis + Aufschlag + Netzentgelt + Steuern und Abgaben, inkl. 19 % MwSt).'
-            : ($this->source() === self::SOURCE_TIBBER ? '🏷 Endpreis aus der Tibber-Preisübersicht für PLZ ' . $this->postalCode() . ' (inkl. MwSt).'
+        $info = $info ?? $this->tibberGridRewardsInfo();
+        $tariff = $tariff ?? (bool)$this->ReadPropertyBoolean('TariffEnabled');
+        $source = $source ?? $this->source();
+        $own = $tariff ? '🧾 Preis aus deinem eigenen Tarif (Börsenpreis + Aufschlag + Netzentgelt + Steuern und Abgaben, inkl. 19 % MwSt).'
+            : ($source === self::SOURCE_TIBBER ? '🏷 Endpreis aus der Tibber-Preisübersicht für PLZ ' . $this->postalCode() . ' (inkl. MwSt).'
             : 'ℹ️ Reiner Börsenpreis (netto) — für einen echten Endpreis unten den eigenen Tarif einschalten.');
-        return ($info['problem'] !== '' ? '⚠️ ' . $info['problem'] . "\n" : '') . $line;
+        switch ($info['state']) {
+            case 'ok':
+                $now = $this->tibberPriceAt($info['curve'], $this->now());
+                $until = max(array_map(fn($c) => $c[1], $info['curve']));
+                return '✅ Preis aus Tibber Grid Rewards (#' . $info['id'] . ' „' . IPS_GetName($info['id']) . '“, Vertrag ' . $info['version'] . ') übernommen: '
+                    . ($now !== null ? 'Endpreis jetzt ' . number_format($now, 2, ',', '.') . ' ct/kWh' : 'für jetzt noch kein Tibber-Preis')
+                    . ', Tibber-Preise bis ' . date('d.m.Y H:i', $until) . ' Uhr.'
+                    . "\nFür Viertelstunden ohne Tibber-Preis gilt: " . $own;
+            case 'ambiguous':
+                return '⚠️ Mehrere Instanzen von Tibber Grid Rewards gefunden (#' . implode(', #', $info['list']) . ') — bitte unten „Tibber-Instanz“ wählen, bis dahin wird keine genutzt.'
+                    . "\n" . $own;
+            case 'problem':
+                return '⚠️ ' . $info['problem'] . "\n" . $own;
+            case 'missing':
+                return 'ℹ️ Tibber Grid Rewards nicht gefunden — es gilt:' . "\n" . $own;
+            default:
+                return 'ℹ️ Tibber Grid Rewards abgewählt — es gilt:' . "\n" . $own;
+        }
+    }
+
+    /** 🔗-Zeile, wenn der Endpreis automatisch von Tibber kommt (ersetzt die Tarif-Felder, SUITE.md 21.09.2026). */
+    private function tibberAutoLine(array $info): string
+    {
+        if ($info['state'] !== 'ok') {
+            return '';
+        }
+        $now = $this->tibberPriceAt($info['curve'], $this->now());
+        return '🔗 Endpreis: ' . ($now !== null ? number_format($now, 2, ',', '.') . ' ct/kWh jetzt' : 'ab der nächsten Tibber-Viertelstunde')
+            . ' (automatisch von Tibber Grid Rewards #' . $info['id'] . '). Die Tarif-Felder werden dafür nicht gebraucht und sind ausgeblendet.'
+            . ' Wer stattdessen den eigenen Tarif rechnen will: „Preis von Tibber Grid Rewards nutzen“ abschalten.';
+    }
+
+    /**
+     * SPOT_UIRefreshMarket($id, …): Statuszeile, 🔗-Zeile und Tarif-Felder folgen der Auswahl im
+     * Formular, bevor „Übernehmen“ geklickt ist (onChange von Häkchen, Tibber-Instanz und Quelle).
+     */
+    public function UIRefreshMarket(bool $UseTibberPrice, bool $TariffEnabled, int $TibberInstance, int $Source): void
+    {
+        $info = $this->tibberGridRewardsInfo($UseTibberPrice, $TibberInstance);
+        $this->UpdateFormField('MarketSourceStatus', 'caption', $this->marketSourceStatus($info, $TariffEnabled, $Source));
+        $auto = $this->tibberAutoLine($info);
+        $this->UpdateFormField('TibberAutoLine', 'caption', $auto);
+        $this->UpdateFormField('TibberAutoLine', 'visible', $auto !== '');
+        $this->UpdateFormField('TibberInstance', 'visible', $UseTibberPrice && count($info['list']) > 1);
+        foreach (self::TARIFF_FIELDS as $name) {
+            $this->UpdateFormField($name, 'visible', $auto === '');
+        }
     }
 
     private function entsoeTokenStatus(): string
@@ -1435,8 +1509,9 @@ class Boersenpreis extends IPSModule
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
             'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
             'items' => [
-                ['type' => 'Label', 'caption' => '• Neuer Name: Das Modul heißt jetzt überall „Börsenpreis“ (Repo DG65/NRGBoersenpreis). Funktionen, Variablen und die Anbindung an andere Module bleiben unverändert.'],
-                ['type' => 'Label', 'caption' => '• „Wozu dieses Modul?“ lässt sich im Panel „Dokumentation & Hilfe“ wieder einblenden. Weggeklickte Hinweise gelten jetzt für alle Börsenpreis-Instanzen. Texte nutzen wieder die volle Formularbreite.'],
+                ['type' => 'Label', 'caption' => '• Panel „Symcon Energie Manager & Tarif“: Die Statuszeile zeigt jetzt genau, ob Tibber Grid Rewards gefunden wurde, welche Instanz, welche Vertragsversion und welchen Endpreis sie gerade liefert — und sie folgt deinen Häkchen sofort, noch vor „Übernehmen“.'],
+                ['type' => 'Label', 'caption' => '• Kommt dein Endpreis automatisch von Tibber Grid Rewards, sind die Tarif-Felder ausgeblendet und eine 🔗-Zeile zeigt den übernommenen Preis. Bei mehreren Tibber-Instanzen wählst du die richtige aus, statt dass das Modul rät.'],
+                ['type' => 'Label', 'caption' => '• Seit 0.6: Neuer Name „Börsenpreis“ (Repo DG65/NRGBoersenpreis), „Wozu dieses Modul?“ im Panel „Dokumentation & Hilfe“ wieder einblendbar, Feedback-Link zum Forum-Thread.'],
                 ['type' => 'Label', 'caption' => '• Seit 0.5: Tarif für den Symcon Energie Manager (Panel „Symcon Energie Manager & Tarif“) — mit Tibber Grid Rewards dein echter Tibber-Preis, sonst dein Endpreis aus Börsenpreis, Aufschlag, Netzentgelt (auch nach § 14a Modul 3, getrennt für Werktage und Wochenende), Konzessionsabgabe, Umlagen und Mehrwertsteuer.'],
                 ['type' => 'Label', 'caption' => '• Seit 0.3/0.4: weitere Quellen „EPEX Spot (über ENTSO-E)“ (mit kostenlosem Zugangsschlüssel) und „Tibber-Preisübersicht“ (ohne Konto, per Postleitzahl) sowie die Variable „Marktdaten (Energie Manager)“ für Symcons Energie Manager.'],
                 ['type' => 'Label', 'caption' => '• Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).'],
@@ -1482,7 +1557,7 @@ class Boersenpreis extends IPSModule
             'type' => 'ExpansionPanel', 'expanded' => true,
             'caption' => '🔌  Datenquelle',
             'items' => [
-                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => self::FIELD_WIDTH, 'onChange' => 'SPOT_UIChangeSource($id, $Source);', 'options' => [
+                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => self::FIELD_WIDTH, 'onChange' => 'SPOT_UIChangeSource($id, $Source); SPOT_UIRefreshMarket($id, $UseTibberPrice, $TariffEnabled, $TibberInstance, $Source);', 'options' => [
                     ['caption' => 'Energy-Charts (Fraunhofer ISE) — empfohlen', 'value' => self::SOURCE_ENERGYCHARTS],
                     ['caption' => 'EPEX Spot über ENTSO-E — mit Zugangsschlüssel', 'value' => self::SOURCE_ENTSOE],
                     ['caption' => 'Tibber-Preisübersicht — per Postleitzahl', 'value' => self::SOURCE_TIBBER],
@@ -1548,27 +1623,38 @@ class Boersenpreis extends IPSModule
         $quarter = function (int $q, string $months) {
             return ['type' => 'CheckBox', 'name' => 'Modul3Q' . $q, 'caption' => 'Q' . $q . ' (' . $months . ')'];
         };
+        $info = $this->tibberGridRewardsInfo();
+        $auto = $this->tibberAutoLine($info);
+        $show = $auto === ''; // Tarif-Felder nur, wenn der Endpreis NICHT automatisch von Tibber kommt
+        $refresh = 'SPOT_UIRefreshMarket($id, $UseTibberPrice, $TariffEnabled, $TibberInstance, $Source);';
+        $instOptions = [['caption' => 'bitte wählen', 'value' => 0]];
+        foreach ($info['list'] as $iid) {
+            $instOptions[] = ['caption' => '#' . $iid . ' ' . IPS_GetName($iid), 'value' => $iid];
+        }
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
             'caption' => '⚡  Symcon Energie Manager & Tarif',
             'items' => [
                 ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach deinem Endpreis.'],
-                ['type' => 'Label', 'name' => 'MarketSourceStatus', 'caption' => $this->marketSourceStatus()],
-                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Preis von Tibber Grid Rewards nutzen'],
+                ['type' => 'Label', 'name' => 'MarketSourceStatus', 'caption' => $this->marketSourceStatus($info)],
+                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Preis von Tibber Grid Rewards nutzen', 'onChange' => $refresh],
                 ['type' => 'Label', 'caption' => 'ℹ️ Nur wenn das Modul Tibber Grid Rewards installiert ist: dann kommt dein echter Tibber-Endpreis von dort (empfohlen für Tibber-Kunden).'],
-                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen'],
-                ['type' => 'Label', 'caption' => 'z. B. für einen anderen dynamischen Tarif. Alle Beträge netto in ct/kWh — die Mehrwertsteuer rechnet das Modul selbst hinzu.'],
+                ['type' => 'Select', 'name' => 'TibberInstance', 'caption' => 'Tibber-Instanz', 'width' => self::FIELD_WIDTH, 'options' => $instOptions,
+                    'visible' => count($info['list']) > 1 && $info['state'] !== 'off', 'onChange' => $refresh],
+                ['type' => 'Label', 'name' => 'TibberAutoLine', 'caption' => $auto, 'visible' => !$show],
+                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen', 'visible' => $show, 'onChange' => $refresh],
+                ['type' => 'Label', 'name' => 'TariffIntro', 'visible' => $show, 'caption' => 'z. B. für einen anderen dynamischen Tarif. Alle Beträge netto in ct/kWh — die Mehrwertsteuer rechnet das Modul selbst hinzu.'],
                 // Minimum 0: Bei negativem Minimum zeigte die Konsole für den Wert 0 das Minimum an (−20, Live-Fund 14.09.2026).
-                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'caption' => 'Aufschlag des Anbieters', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 100, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'caption' => 'Konzessionsabgabe', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 5, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'Label', 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
-                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'caption' => 'Netzentgelt nach § 14a Modul 3'],
-                ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'caption' => 'Netzentgelt Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzST', 'caption' => 'Netzentgelt Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'caption' => 'Netzentgelt Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'visible' => $show, 'caption' => 'Aufschlag des Anbieters', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 100, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'visible' => $show, 'caption' => 'Konzessionsabgabe', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 5, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'visible' => $show, 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'Label', 'name' => 'TariffTaxInfo', 'visible' => $show, 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
+                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'visible' => $show, 'caption' => 'Netzentgelt nach § 14a Modul 3'],
+                ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'visible' => $show, 'caption' => 'Netzentgelt Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzST', 'visible' => $show, 'caption' => 'Netzentgelt Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'visible' => $show, 'caption' => 'Netzentgelt Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
                 [
-                    'type' => 'List', 'name' => 'NetzWindows', 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
+                    'type' => 'List', 'name' => 'NetzWindows', 'visible' => $show, 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
                     'columns' => [
                         ['caption' => 'Von', 'name' => 'From', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
                         ['caption' => 'Bis', 'name' => 'To', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
@@ -1584,9 +1670,9 @@ class Boersenpreis extends IPSModule
                         ]]],
                     ],
                 ],
-                ['type' => 'RowLayout', 'items' => [$quarter(1, 'Jan–Mär'), $quarter(2, 'Apr–Jun'), $quarter(3, 'Jul–Sep'), $quarter(4, 'Okt–Dez')]],
-                ['type' => 'Label', 'caption' => 'Außerhalb der Zeitfenster und in Quartalen ohne Häkchen gilt der Arbeitspreis. „Bis 00:00“ heißt Tagesende, Fenster über Mitternacht sind erlaubt. Feiertage kennt das Modul nicht — sie zählen wie ihr Wochentag.'],
-                ['type' => 'PopupButton', 'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?', 'width' => '500px', 'popup' => [
+                ['type' => 'RowLayout', 'name' => 'Modul3Quarters', 'visible' => $show, 'items' => [$quarter(1, 'Jan–Mär'), $quarter(2, 'Apr–Jun'), $quarter(3, 'Jul–Sep'), $quarter(4, 'Okt–Dez')]],
+                ['type' => 'Label', 'name' => 'Modul3Hint', 'visible' => $show, 'caption' => 'Außerhalb der Zeitfenster und in Quartalen ohne Häkchen gilt der Arbeitspreis. „Bis 00:00“ heißt Tagesende, Fenster über Mitternacht sind erlaubt. Feiertage kennt das Modul nicht — sie zählen wie ihr Wochentag.'],
+                ['type' => 'PopupButton', 'name' => 'TariffHelp', 'visible' => $show, 'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?', 'width' => '500px', 'popup' => [
                     'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?',
                     'items' => [
                         ['type' => 'Label', 'caption' => 'Netzentgelt und die § 14a-Modul-3-Zeitfenster stehen im Preisblatt deines Netzbetreibers (auf dessen Webseite, meist „Netzentgelte“ bzw. „Preisblatt Netznutzung“) und auf deiner Stromrechnung. Den Netzbetreiber findest du auf der Rechnung oder über deine Postleitzahl.'],

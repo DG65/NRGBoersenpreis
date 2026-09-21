@@ -106,6 +106,13 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
   Lücke, hier gelöst; Feiertage nicht. Offen (Tibber-Hinweis): gemeinsames Komponenten-Vokabular
   ggf. über EMS/SUITE.md verbundweit formalisieren. Alte Properties MarketBase/Tax/Surcharge
   seit 0.5.0 ohne Wirkung, nur registriert (kein Migrationsbruch).
+  **Seit 0.7.0 (SUITE.md „Verbund-Verbindungen sichtbar“ + „Wert kommt automatisch“, 21.09.2026):**
+  `marketSourceStatus()` zeigt ✅ Instanz/Name/Vertrag/Endpreis jetzt/Horizont, ℹ️ nicht gefunden
+  bzw. abgewählt, ⚠️ Problem oder mehrere Instanzen (Property `TibberInstance`, 0 = automatisch bei
+  genau einer — bei mehreren NIE raten, dann wird keine genutzt). Liefert Tibber, sind die
+  `TARIFF_FIELDS` ausgeblendet und `TibberAutoLine` (🔗) zeigt Preis und Quelle. Häkchen, Instanz
+  und Quelle rufen per `onChange` `SPOT_UIRefreshMarket` auf (Zeile folgt der Auswahl, nicht dem
+  Speicherstand). Prüfstand Block 18b prüft das ausgelieferte JSON rekursiv.
 - **Symcon Energie Manager** (seit 0.3.0): Variable `MarketData` im Format von
   symcon/Strompreis (`NormalizeAndReduce`): `[{start,end,price ct/kWh}]`, ab laufender
   Viertelstunde ≤ 96 Einträge (24 h). Preis seit 0.5.0 nach der Reihenfolge Tibber Grid Rewards →
