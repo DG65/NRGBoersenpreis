@@ -6,6 +6,11 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 ## [0.7.0] - 2026-09-21
 
 ### Changed
+- **„Was ist Neu“ zeigt genau die Lücke** (SUITE.md „NEWS_VERSIONS-Array“, verbundweit ab
+  23.09.2026, Vorbild NRGDashboard): Die Hinweise stehen jetzt je Version in `NEWS_VERSIONS`;
+  das Panel „🆕 Neu bis Version X“ zeigt nur Versionen, die neuer sind als die zuletzt bestätigte.
+  „Verstanden“ merkt sich die installierte Bibliotheksversion (ohne Beta-/Build-Zusatz) statt des
+  letzten Listeneintrags — ein späteres Update zeigt den Hinweis dadurch verlässlich wieder.
 - **Verbindung zu Tibber Grid Rewards sichtbar** (SUITE.md „Verbund-Verbindungen im Formular
   sichtbar machen“, verbundweit ab 21.09.2026): Die Statuszeile im Panel „Symcon Energie Manager &
   Tarif“ nennt jetzt ✅ Instanz, Name, Vertragsversion, den übernommenen Endpreis und bis wann Tibber

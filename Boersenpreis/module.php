@@ -52,7 +52,26 @@ class Boersenpreis extends IPSModule
     private const HOLD_MAX_SECONDS  = 43200; // Archivwert gilt höchstens 12 h weiter (Stillstand ≠ gleicher Preis)
 
     // Formular-Konvention (SUITE.md "Einheitliche Formular-Optik").
-    private const NEWS_VERSION = '0.7.0';
+    // „Was ist Neu“ je Version (SUITE.md „NEWS_VERSIONS-Array“, verbundweit ab 23.09.2026):
+    // Schlüssel = Version ohne Beta-/Build-Zusatz, Wert = Zeilen. Der Banner zeigt genau die Lücke
+    // zwischen zuletzt bestätigter und installierter Version. Die alte, über mehrere Versionen
+    // gewachsene Liste bleibt als EIN Block unter ihrer letzten NEWS_VERSION-Nummer (0.6.0).
+    private const NEWS_VERSIONS = [
+        '0.6.0' => [
+            'Neuer Name: Das Modul heißt jetzt überall „Börsenpreis“ (Repo DG65/NRGBoersenpreis). Funktionen, Variablen und die Anbindung an andere Module bleiben unverändert.',
+            '„Wozu dieses Modul?“ lässt sich im Panel „Dokumentation & Hilfe“ wieder einblenden. Weggeklickte Hinweise gelten jetzt für alle Börsenpreis-Instanzen. Texte nutzen wieder die volle Formularbreite.',
+            'Seit 0.5: Tarif für den Symcon Energie Manager (Panel „Symcon Energie Manager & Tarif“) — mit Tibber Grid Rewards dein echter Tibber-Preis, sonst dein Endpreis aus Börsenpreis, Aufschlag, Netzentgelt (auch nach § 14a Modul 3, getrennt für Werktage und Wochenende), Konzessionsabgabe, Umlagen und Mehrwertsteuer.',
+            'Seit 0.3/0.4: weitere Quellen „EPEX Spot (über ENTSO-E)“ (mit kostenlosem Zugangsschlüssel) und „Tibber-Preisübersicht“ (ohne Konto, per Postleitzahl) sowie die Variable „Marktdaten (Energie Manager)“ für Symcons Energie Manager.',
+            'Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).',
+        ],
+        '0.6.1' => [
+            'Der Knopf „Zum Forums-Thread“ im Panel „💬  Feedback im Symcon-Forum“ führt jetzt zum veröffentlichten Vorstellungs-Thread.',
+        ],
+        '0.7.0' => [
+            'Panel „Symcon Energie Manager & Tarif“: Die Statuszeile zeigt jetzt genau, ob Tibber Grid Rewards gefunden wurde, welche Instanz, welche Vertragsversion und welchen Endpreis sie gerade liefert — und sie folgt deinen Häkchen sofort, noch vor „Übernehmen“.',
+            'Kommt dein Endpreis automatisch von Tibber Grid Rewards, sind die Tarif-Felder ausgeblendet und eine grüne 🔗-Zeile zeigt den übernommenen Preis. Bei mehreren Tibber-Instanzen wählst du die richtige aus, statt dass das Modul rät.',
+        ],
+    ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
     // volle Breite selbst um, wie in allen Verbund-Modulen). Überbreite entsteht durch NEBENEINANDER
@@ -1324,7 +1343,15 @@ class Boersenpreis extends IPSModule
 
     public function AckNews(): void
     {
-        $this->WriteAttributeString('SeenNews', self::NEWS_VERSION);
+        // Die tatsächlich installierte Bibliotheksversion merken, nicht den letzten
+        // NEWS_VERSIONS-Schlüssel (SUITE.md 23.09.2026): So zeigt ein späteres Update den Banner
+        // sicher wieder, auch wenn zwischen beiden Versionen kein Eintrag lag.
+        $lib = @IPS_GetLibrary(self::LIBRARY_GUID);
+        $ver = is_array($lib) ? $this->baseVersion((string)($lib['Version'] ?? '')) : '';
+        if ($ver === '' || version_compare($ver, (string)array_key_last(self::NEWS_VERSIONS), '<')) {
+            $ver = (string)array_key_last(self::NEWS_VERSIONS);
+        }
+        $this->WriteAttributeString('SeenNews', $ver);
         $this->UpdateFormField('NewsPanel', 'visible', false);
         $this->propagateDismiss();
     }
@@ -1505,22 +1532,39 @@ class Boersenpreis extends IPSModule
 
     private function NewsBanner(): ?array
     {
-        if ($this->ReadAttributeString('SeenNews') === self::NEWS_VERSION) {
+        $seen = (string)$this->ReadAttributeString('SeenNews');
+        $pending = [];
+        foreach (self::NEWS_VERSIONS as $ver => $lines) {
+            if ($seen === '' || version_compare((string)$ver, $seen, '>')) {
+                $pending[(string)$ver] = $lines;
+            }
+        }
+        if (count($pending) === 0) {
             return null;
         }
+        uksort($pending, 'version_compare');
+        $items = [];
+        $multi = count($pending) > 1;
+        foreach ($pending as $ver => $lines) {
+            if ($multi) {
+                $items[] = ['type' => 'Label', 'caption' => 'Version ' . $ver . ':'];
+            }
+            foreach ($lines as $line) {
+                $items[] = ['type' => 'Label', 'caption' => '• ' . $line];
+            }
+        }
+        $items[] = ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'];
         return [
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
-            'caption' => '🆕  Neu in Version ' . self::NEWS_VERSION,
-            'items' => [
-                ['type' => 'Label', 'caption' => '• Panel „Symcon Energie Manager & Tarif“: Die Statuszeile zeigt jetzt genau, ob Tibber Grid Rewards gefunden wurde, welche Instanz, welche Vertragsversion und welchen Endpreis sie gerade liefert — und sie folgt deinen Häkchen sofort, noch vor „Übernehmen“.'],
-                ['type' => 'Label', 'caption' => '• Kommt dein Endpreis automatisch von Tibber Grid Rewards, sind die Tarif-Felder ausgeblendet und eine 🔗-Zeile zeigt den übernommenen Preis. Bei mehreren Tibber-Instanzen wählst du die richtige aus, statt dass das Modul rät.'],
-                ['type' => 'Label', 'caption' => '• Seit 0.6: Neuer Name „Börsenpreis“ (Repo DG65/NRGBoersenpreis), „Wozu dieses Modul?“ im Panel „Dokumentation & Hilfe“ wieder einblendbar, Feedback-Link zum Forum-Thread.'],
-                ['type' => 'Label', 'caption' => '• Seit 0.5: Tarif für den Symcon Energie Manager (Panel „Symcon Energie Manager & Tarif“) — mit Tibber Grid Rewards dein echter Tibber-Preis, sonst dein Endpreis aus Börsenpreis, Aufschlag, Netzentgelt (auch nach § 14a Modul 3, getrennt für Werktage und Wochenende), Konzessionsabgabe, Umlagen und Mehrwertsteuer.'],
-                ['type' => 'Label', 'caption' => '• Seit 0.3/0.4: weitere Quellen „EPEX Spot (über ENTSO-E)“ (mit kostenlosem Zugangsschlüssel) und „Tibber-Preisübersicht“ (ohne Konto, per Postleitzahl) sowie die Variable „Marktdaten (Energie Manager)“ für Symcons Energie Manager.'],
-                ['type' => 'Label', 'caption' => '• Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).'],
-                ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'],
-            ],
+            'caption' => '🆕  Neu bis Version ' . array_key_last($pending),
+            'items' => $items,
         ];
+    }
+
+    /** Version ohne Beta-/Build-Zusatz — Vergleichsbasis für NEWS_VERSIONS (SUITE.md 23.09.2026). */
+    private function baseVersion(string $v): string
+    {
+        return preg_replace('/-.*$/', '', $v) ?? $v;
     }
 
     private function DocPanel(): array

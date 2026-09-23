@@ -50,7 +50,8 @@ function IPS_SetVariableProfileDigits(string $n, int $d): bool { $GLOBALS['PROFI
 function IPS_SetVariableProfileText(string $n, string $p, string $s): bool { $GLOBALS['PROFILES'][$n]['suffix'] = $s; return true; }
 function IPS_SetVariableProfileAssociation(string $n, $v, string $c, string $i, int $col): bool { $GLOBALS['PROFILES'][$n]['assoc'][(string)$v] = $c; return true; }
 function IPS_LogMessage(string $s, string $m): bool { $GLOBALS['LOG'][] = "$s: $m"; return true; }
-function IPS_GetLibrary(string $guid): array { return ['Version' => '0.0.0-test', 'Build' => 0]; }
+$GLOBALS['LIB_VERSION'] = '0.0.0-test';
+function IPS_GetLibrary(string $guid): array { return ['Version' => $GLOBALS['LIB_VERSION'], 'Build' => 0]; }
 $GLOBALS['NAMES'] = [];   // Objektnamen für IPS_GetName (Partnerinstanzen)
 function IPS_GetName(int $id): string { return $GLOBALS['NAMES'][$id] ?? ('Objekt #' . $id); }
 // Archive Control: wie Symcon speichert das Archiv nur WERTÄNDERUNGEN (siehe IPSModule::SetValue).
@@ -927,6 +928,40 @@ $treffer = 0;
 foreach ($h as $s) { foreach ($GLOBALS['AC'][$vid] as $r) { if ($r['TimeStamp'] === $s['start'] && abs($r['Value'] - $s['price']) < 1e-9) { $treffer++; } } }
 check('Jeder Rückblick-Preis steht auf seinem Archiv-Zeitpunkt', $treffer === 92, $treffer . '/92');
 $GLOBALS['ARCHIVES'] = [];
+
+heading('27. „Was ist Neu“ je Version (SUITE.md NEWS_VERSIONS, 23.09.2026)');
+$news = function (SpotTest $o) {
+    foreach (form($o)['elements'] as $el) {
+        if (($el['name'] ?? '') === 'NewsPanel') { return $el; }
+    }
+    return null;
+};
+$newsText = function (?array $panel) { return $panel === null ? '' : json_encode($panel, JSON_UNESCAPED_UNICODE); };
+clock('2026-09-23 10:00:00');
+$GLOBALS['VARS'] = [];
+$n1 = new SpotTest();
+$n1->Create();
+$p1 = $news($n1);
+check('Frische Instanz: Banner „Neu bis Version 0.7.0“, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.7.0'
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.7.0:'), $p1['caption'] ?? '-');
+$n1->attrs['SeenNews'] = '0.6.0';
+$p2 = $news($n1);
+check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
+    && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
+$n1->attrs['SeenNews'] = '0.7.0';
+check('Alles gesehen: kein Banner', $news($n1) === null);
+$n1->attrs['SeenNews'] = '';
+$GLOBALS['LIB_VERSION'] = '0.7.0-beta.2';
+$n1->AckNews();
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.7.0-beta.2 → 0.7.0)', $n1->attrs['SeenNews'] === '0.7.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+$n1->attrs['SeenNews'] = '';
+$GLOBALS['LIB_VERSION'] = '0.9.1';
+$n1->AckNews();
+check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.9.1)', $n1->attrs['SeenNews'] === '0.9.1');
+$n1->attrs['SeenNews'] = '';
+$GLOBALS['LIB_VERSION'] = '0.0.0-test';
+$n1->AckNews();
+check('Bibliothek unbekannt/älter: Rückfall auf den letzten Eintrag, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.7.0' && $news($n1) === null);
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
