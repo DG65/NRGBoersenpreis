@@ -82,7 +82,6 @@ class Boersenpreis extends IPSModule
     private const PAYPAL_URL   = 'https://paypal.me/DietmarGureth';
     // Vorstellungs-Thread, von Dietmar am 16.09.2026 gepostet (ohne ?u=-Empfehlungsparameter).
     private const FORUM_THREAD_URL = 'https://community.symcon.de/t/beta-modul-nrg-stack-boersenpreis-day-ahead-boersenpreise-je-viertelstunde-negative-preise-erkennen-endpreise-fuer-den-symcon-energie-manager/144413';
-    private const LOG_SENDER   = 'NRG-Stack Börsenpreis';
 
     private const SOURCE_ENERGYCHARTS = 0;
     private const SOURCE_AWATTAR      = 1;
@@ -519,12 +518,16 @@ class Boersenpreis extends IPSModule
         return $text;
     }
 
-    /** Fehler festhalten: Attribut fürs Formular, dauerhaftes Log nur beim ersten Auftreten (SUITE.md „Sichtbare Rückmeldung", Regel 5). */
+    /**
+     * Fehler festhalten: Attribut fürs Formular, dauerhaftes Log nur beim ersten Auftreten
+     * (SUITE.md „Sichtbare Rückmeldung", Regel 5). Logging immer über $this->LogMessage()
+     * (Absender = Instanz), nie IPS_LogMessage — Store-Review-Checkliste 15 (12.10.2026).
+     */
     private function fail(string $message): string
     {
         $this->WriteAttributeString('LastError', date('d.m.Y H:i', $this->now()) . ' Uhr: ' . $message);
         if ($this->ReadAttributeString('LoggedError') !== $message) {
-            IPS_LogMessage(self::LOG_SENDER, 'Abruf fehlgeschlagen: ' . $message);
+            $this->LogMessage('Abruf fehlgeschlagen: ' . $message, KL_WARNING);
             $this->WriteAttributeString('LoggedError', $message);
         }
         $this->SendDebug('Abruf', 'Fehler: ' . $message, 0);

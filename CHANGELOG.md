@@ -6,6 +6,9 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 ## [0.7.0] - 2026-09-21
 
 ### Changed
+- **Logging über `$this->LogMessage()`** statt `IPS_LogMessage()` (Store-Review-Bemerkung, SUITE.md
+  Store-Review-Checkliste 15, 12.10.2026): Absender ist damit die Instanz selbst, Fehler beim Abruf
+  gehen als Warnung (`KL_WARNING`) ins Log. Nutzersichtbar ändert sich nur der Absender im Log.
 - **„Was ist Neu“ zeigt genau die Lücke** (SUITE.md „NEWS_VERSIONS-Array“, verbundweit ab
   23.09.2026, Vorbild NRGDashboard): Die Hinweise stehen jetzt je Version in `NEWS_VERSIONS`;
   das Panel „🆕 Neu bis Version X“ zeigt nur Versionen, die neuer sind als die zuletzt bestätigte.

@@ -49,7 +49,15 @@ function IPS_CreateVariableProfile(string $n, int $t): bool { $GLOBALS['PROFILES
 function IPS_SetVariableProfileDigits(string $n, int $d): bool { $GLOBALS['PROFILES'][$n]['digits'] = $d; return true; }
 function IPS_SetVariableProfileText(string $n, string $p, string $s): bool { $GLOBALS['PROFILES'][$n]['suffix'] = $s; return true; }
 function IPS_SetVariableProfileAssociation(string $n, $v, string $c, string $i, int $col): bool { $GLOBALS['PROFILES'][$n]['assoc'][(string)$v] = $c; return true; }
-function IPS_LogMessage(string $s, string $m): bool { $GLOBALS['LOG'][] = "$s: $m"; return true; }
+const KL_MESSAGE = 1;
+const KL_SUCCESS = 2;
+const KL_NOTIFY = 3;
+const KL_WARNING = 4;
+const KL_ERROR = 5;
+const KL_DEBUG = 6;
+const KL_CUSTOM = 7;
+// Absichtlich NICHT definiert: IPS_LogMessage() — Modulklassen loggen über $this->LogMessage()
+// (Store-Review-Checkliste 15, SUITE.md 12.10.2026); ein Rückfall würde hier sofort auffliegen.
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 function IPS_GetLibrary(string $guid): array { return ['Version' => $GLOBALS['LIB_VERSION'], 'Build' => 0]; }
 $GLOBALS['NAMES'] = [];   // Objektnamen für IPS_GetName (Partnerinstanzen)
@@ -108,6 +116,7 @@ class IPSModule
     public function SetTimerInterval(string $n, int $ms): void { $this->timers[$n] = $ms; }
     public function RegisterMessage(int $sender, int $msg): void {}
     public function SendDebug(string $a, string $b, int $c): void { $this->debug[] = "$a: $b"; }
+    public function LogMessage(string $text, int $level): void { $GLOBALS['LOG'][] = $level . ': ' . $text; }
     public function UpdateFormField(string $n, string $p, $v): void { $this->fieldUpdates[] = [$n, $p, $v]; }
     public function MaintainVariable(string $ident, string $name, int $type, string $profile, int $pos, bool $keep): void
     {
@@ -962,6 +971,18 @@ $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
 check('Bibliothek unbekannt/älter: Rückfall auf den letzten Eintrag, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.7.0' && $news($n1) === null);
+
+heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
+$src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
+check('module.php ruft nirgends IPS_LogMessage( auf', !str_contains($src, 'IPS_LogMessage('));
+check('Stattdessen $this->LogMessage( mit KL_-Stufe', str_contains($src, '$this->LogMessage(') && preg_match('/\$this->LogMessage\([^;]*KL_[A-Z]+\)/', $src) === 1);
+clock('2026-09-12 10:00:00');
+$GLOBALS['LOG'] = [];
+$m = fresh();
+$GLOBALS['HTTP'][] = resp(404, 'keine Daten');
+$m->ApplyChanges();
+check('Fehler landet als Warnung (KL_WARNING) im Log, Absender ist die Instanz', count($GLOBALS['LOG']) === 1 && str_starts_with($GLOBALS['LOG'][0], '4: Abruf fehlgeschlagen'), implode(' | ', $GLOBALS['LOG']));
+$GLOBALS['LOG'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
