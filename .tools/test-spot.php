@@ -39,7 +39,8 @@ $GLOBALS['ADOPT_CALLS'] = 0;
 function SPOT_GetDismissState(int $id): string { if (!isset($GLOBALS['SPOT_OBJ'][$id])) { throw new RuntimeException('Instanz fehlt'); } return $GLOBALS['SPOT_OBJ'][$id]->GetDismissState(); }
 function SPOT_AdoptDismissState(int $id, string $s): void { $GLOBALS['ADOPT_CALLS']++; if (!isset($GLOBALS['SPOT_OBJ'][$id])) { throw new RuntimeException('Instanz fehlt'); } $GLOBALS['SPOT_OBJ'][$id]->AdoptDismissState($s); }
 
-function IPS_GetKernelRunlevel(): int { return KR_READY; }
+$GLOBALS['RUNLEVEL'] = KR_READY;
+function IPS_GetKernelRunlevel(): int { return $GLOBALS['RUNLEVEL']; }
 function IPS_GetObjectIDByIdent(string $ident, int $parent) {
     foreach ($GLOBALS['VARS'] as $id => $v) { if ($v['ident'] === $ident && $v['parent'] === $parent) { return $id; } }
     return false;
@@ -982,6 +983,36 @@ $m = fresh();
 $GLOBALS['HTTP'][] = resp(404, 'keine Daten');
 $m->ApplyChanges();
 check('Fehler landet als Warnung (KL_WARNING) im Log, Absender ist die Instanz', count($GLOBALS['LOG']) === 1 && str_starts_with($GLOBALS['LOG'][0], '4: Abruf fehlgeschlagen'), implode(' | ', $GLOBALS['LOG']));
+$GLOBALS['LOG'] = [];
+
+heading('29. Symcon-Start und Darstellungen (Store-Review-Checkliste 16/17, 18.10.2026)');
+$src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
+check('Keine MaintainVariable(..., false) — Variablen werden nie gelöscht, auch nicht nach Fremdabfragen',
+    preg_match('/MaintainVariable\([^;]*,\s*false\s*\)/', $src) === 0);
+check('Keine Presentation-OPTIONS: klassische Profile, damit die Farb-Schlüssel-Falle (Color vs. ColorValue) nicht greifen kann',
+    !str_contains($src, 'PRESENTATION') && !str_contains($src, "'OPTIONS'"));
+// Start von Symcon: Fremdmodule (Tibber Grid Rewards, Archiv) sind noch nicht da.
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = [];
+$GLOBALS['RUNLEVEL'] = 10102; // KR_INIT
+$GLOBALS['LOG'] = [];
+$GLOBALS['REQUESTS'] = [];
+$GLOBALS['HTTP'] = [];
+$boot = new SpotTest();
+$boot->Create();
+$varsNachCreate = count($GLOBALS['VARS']);
+$boot->ApplyChanges();
+check('Vor KR_READY: kein Abruf, keine Variablenpflege, kein Fehler im Log', count($GLOBALS['REQUESTS']) === 0 && count($GLOBALS['LOG']) === 0
+    && count($GLOBALS['VARS']) === $varsNachCreate, count($GLOBALS['REQUESTS']) . ' Abrufe');
+$GLOBALS['RUNLEVEL'] = KR_READY;
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$boot->MessageSink(0, 0, IPS_KERNELMESSAGE, [KR_READY]);
+check('Nach der Kernel-Meldung wird nachgeholt: Variablen da, Preise abgerufen', IPS_GetObjectIDByIdent('CurrentPrice', $boot->InstanceID) !== false
+    && count($GLOBALS['REQUESTS']) === 1 && $boot->GetValue('TomorrowAvailable') === false);
+$vorher = count($GLOBALS['VARS']);
+$GLOBALS['INSTANCES'] = []; // Tibber Grid Rewards verschwindet (z. B. Modul-Update)
+$boot->ApplyChanges();
+check('Fehlendes Partnermodul löscht keine Variablen', count($GLOBALS['VARS']) === $vorher);
 $GLOBALS['LOG'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";

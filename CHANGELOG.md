@@ -6,6 +6,12 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 ## [0.7.0] - 2026-09-21
 
 ### Changed
+- **Prüfstand hält zwei Store-Review-Fallen fest** (SUITE.md Store-Review-Checkliste 16/17,
+  18.10.2026, Fund aus dem HeishaMon-Review): Beim Symcon-Start bleibt `ApplyChanges()` bis
+  `KR_READY` untätig und holt die Pflege erst nach der Kernel-Meldung nach — geprüft wird jetzt
+  auch, dass dabei kein Abruf läuft und ein fehlendes Partnermodul keine Variable löscht. Das
+  Modul nutzt bewusst klassische Variablenprofile statt Presentation-Darstellungen; auch das
+  prüft der Prüfstand. Am Verhalten des Moduls ändert sich nichts.
 - **Logging über `$this->LogMessage()`** statt `IPS_LogMessage()` (Store-Review-Bemerkung, SUITE.md
   Store-Review-Checkliste 15, 12.10.2026): Absender ist damit die Instanz selbst, Fehler beim Abruf
   gehen als Warnung (`KL_WARNING`) ins Log. Nutzersichtbar ändert sich nur der Absender im Log.
