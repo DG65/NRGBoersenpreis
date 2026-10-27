@@ -546,7 +546,19 @@ check('module.json: Klasse = name, Präfix SPOT, GUIDs passen zur Klasse', $mj['
 heading('14. Preisverlauf aus dem Archiv (Vertrag 1.1, SPOT_GetPriceHistory)');
 $GLOBALS['ARCHIVES'] = [99]; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = []; $GLOBALS['AC_APPLY'] = 0;
 clock('2026-05-01 00:00:30');
+// Store-Review-Checkliste 9k: Vorgabe AUS — ohne Haken archiviert das Modul NICHTS.
+$maus = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-05-01.json'));
+$maus->ApplyChanges();
+$vidAus = IPS_GetObjectIDByIdent('CurrentPrice', 12345);
+check('Ohne Haken „Preisverlauf archivieren": Archivierung bleibt aus, kein Übernehmen am Archiv', ($GLOBALS['AC_LOG'][$vidAus] ?? false) === false
+    && $GLOBALS['AC_APPLY'] === 0 && $maus->props['ArchivePrice'] === false && $maus->attrs['ArchiveInitDone'] === false);
+check('Formular sagt, dass ohne Archiv kein Rückblick möglich ist', str_contains(formText(form($maus)), 'wird nicht archiviert'));
+check('Rückblick ohne Archivierung: leer, kein Absturz', $maus->GetPriceHistory(ts('2026-04-01 00:00:00'), ts('2026-05-01 00:00:00')) === []);
+// Ab hier mit gesetztem Haken (wie bisher): Archivierung einmalig einschalten.
+$GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = []; $GLOBALS['AC_APPLY'] = 0;
 $m = fresh();
+$m->props['ArchivePrice'] = true;
 $GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-05-01.json'));
 $m->ApplyChanges();
 $vid = IPS_GetObjectIDByIdent('CurrentPrice', 12345);
@@ -555,6 +567,9 @@ check('Erster Preis schon im Archiv (Archivierung vor dem ersten Setzen eingesch
 $GLOBALS['AC_LOG'][$vid] = false;
 $m->ApplyChanges();
 check('Nutzer schaltet Archivierung ab: bleibt aus, kein erneutes Übernehmen', $GLOBALS['AC_LOG'][$vid] === false && $GLOBALS['AC_APPLY'] === 1);
+check('Haken wieder entfernt: Modul schaltet die Archivierung NIE selbst ab', (function () use ($m, $vid) {
+    $GLOBALS['AC_LOG'][$vid] = true; $m->props['ArchivePrice'] = false; $m->ApplyChanges();
+    $r = ($GLOBALS['AC_LOG'][$vid] ?? false) === true; $m->props['ArchivePrice'] = true; $GLOBALS['AC_LOG'][$vid] = true; return $r; })());
 $GLOBALS['AC_LOG'][$vid] = true;
 for ($t = ts('2026-05-01 00:15:02'); $t < ts('2026-05-02 00:00:00'); $t += 900) { $GLOBALS['CLOCK'] = $t; $m->Tick(); }
 $ecNeg = json_decode(fx('ec-DE-LU-2026-05-01.json'), true);
@@ -952,26 +967,28 @@ $GLOBALS['VARS'] = [];
 $n1 = new SpotTest();
 $n1->Create();
 $p1 = $news($n1);
-check('Frische Instanz: Banner „Neu bis Version 0.7.0“, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.7.0'
-    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.7.0:'), $p1['caption'] ?? '-');
+check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.8.0'
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.8.0:'), $p1['caption'] ?? '-');
 $n1->attrs['SeenNews'] = '0.6.0';
 $p2 = $news($n1);
 check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
     && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
-$n1->attrs['SeenNews'] = '0.7.0';
+$n1->attrs['SeenNews'] = '0.8.0';
 check('Alles gesehen: kein Banner', $news($n1) === null);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.7.0-beta.2';
+$GLOBALS['LIB_VERSION'] = '0.8.0-beta.2';
 $n1->AckNews();
-check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.7.0-beta.2 → 0.7.0)', $n1->attrs['SeenNews'] === '0.7.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.8.0-beta.2 → 0.8.0)', $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null, $n1->attrs['SeenNews']);
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.9.1';
 $n1->AckNews();
 check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.9.1)', $n1->attrs['SeenNews'] === '0.9.1');
+check('Die höchste News-Version kommt aus version_compare, nicht aus der Reihenfolge im Array',
+    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null; })());
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
-check('Bibliothek unbekannt/älter: Rückfall auf den letzten Eintrag, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.7.0' && $news($n1) === null);
+check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null);
 
 heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');

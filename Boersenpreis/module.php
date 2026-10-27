@@ -71,6 +71,9 @@ class Boersenpreis extends IPSModule
             'Panel „Symcon Energie Manager & Tarif“: Die Statuszeile zeigt jetzt genau, ob Tibber Grid Rewards gefunden wurde, welche Instanz, welche Vertragsversion und welchen Endpreis sie gerade liefert — und sie folgt deinen Häkchen sofort, noch vor „Übernehmen“.',
             'Kommt dein Endpreis automatisch von Tibber Grid Rewards, sind die Tarif-Felder ausgeblendet und eine grüne 🔗-Zeile zeigt den übernommenen Preis. Bei mehreren Tibber-Instanzen wählst du die richtige aus, statt dass das Modul rät.',
         ],
+        '0.8.0' => [
+            'Neuer Haken „Preisverlauf archivieren“ im Panel „Börsenpreise“ (Vorgabe: aus). Nur mit Haken schaltet das Modul die Archivierung von „Börsenpreis jetzt“ ein — die Grundlage für den Rückblick auf vergangene Tage. Eine Statuszeile sagt, was gerade gilt. Wer bisher schon archiviert hat, behält alles; abgeschaltet wird nie automatisch.',
+        ],
     ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
@@ -163,6 +166,9 @@ class Boersenpreis extends IPSModule
         // bzw. 0 als Vorgabe: Netzentgelt, Konzessionsabgabe und Aufschlag sind je Netzgebiet,
         // Gemeinde und Anbieter verschieden — Beispielzahlen einer echten Anlage wären für jeden
         // anderen falsch (Lehre Tibber 2.8.1, keine eigene Anlage als Norm).
+        // Store-Review-Checkliste 9k (28.09.2026): archivbezogene Schalter stehen als Vorgabe AUS,
+        // der Nutzer stimmt bewusst zu. Einmal eingeschaltete Archivierung wird NIE wieder abgeschaltet.
+        $this->RegisterPropertyBoolean('ArchivePrice', false);
         $this->RegisterPropertyBoolean('UseTibberPrice', true);
         // 0 = automatisch (genau eine Instanz); bei mehreren wird nicht geraten (SUITE.md, 21.09.2026).
         $this->RegisterPropertyInteger('TibberInstance', 0);
@@ -880,10 +886,16 @@ class Boersenpreis extends IPSModule
         return count($list) > 0 ? (int)$list[0] : 0;
     }
 
-    /** Archivierung von „Börsenpreis jetzt" einmalig einschalten — danach Nutzer-Hoheit. */
+    /**
+     * Archivierung von „Börsenpreis jetzt" einschalten — nur wenn der Nutzer sie im Formular
+     * angehakt hat (Store-Review-Checkliste 9k: archivbezogene Schalter als Vorgabe AUS), und dann
+     * genau einmal. Abgeschaltet wird die Archivierung nie vom Modul: Wer den Haken wieder
+     * entfernt, behält seine bisherige Historie und entscheidet selbst im Archiv-Dialog.
+     */
     private function ensureArchiving(): void
     {
-        if ($this->ReadAttributeBoolean('ArchiveInitDone') || !function_exists('AC_SetLoggingStatus')) {
+        if (!$this->ReadPropertyBoolean('ArchivePrice') || $this->ReadAttributeBoolean('ArchiveInitDone')
+            || !function_exists('AC_SetLoggingStatus')) {
             return;
         }
         $arch = $this->archiveID();
@@ -1207,6 +1219,25 @@ class Boersenpreis extends IPSModule
         }
     }
 
+    /**
+     * Zustand der Archivierung von „Börsenpreis jetzt" — die Voraussetzung für den Rückblick
+     * (SPOT_GetPriceHistory, Diagramm vergangener Tage im NRG-Stack Dashboard).
+     */
+    private function archiveStatus(): string
+    {
+        $arch = $this->archiveID();
+        $vid = IPS_GetObjectIDByIdent('CurrentPrice', $this->InstanceID);
+        if (!function_exists('AC_GetLoggingStatus') || $arch <= 0 || $vid === false) {
+            return 'ℹ️ Kein Archiv gefunden — ohne Archiv gibt es keinen Rückblick auf vergangene Tage.';
+        }
+        if (AC_GetLoggingStatus($arch, (int)$vid)) {
+            return '✅ „Börsenpreis jetzt“ wird archiviert — daraus kommt der Rückblick auf vergangene Tage'
+                . ' (SPOT_GetPriceHistory, Diagramm im NRG-Stack Dashboard). Das Modul schaltet die Archivierung nie selbst ab.';
+        }
+        return 'ℹ️ „Börsenpreis jetzt“ wird nicht archiviert. Ohne Archiv zeigt der Vertrag nur heute und morgen,'
+            . ' kein vergangener Tag. Haken setzen und „Übernehmen“ klicken, dann schaltet das Modul die Archivierung einmalig ein.';
+    }
+
     private function entsoeTokenStatus(): string
     {
         $t = trim((string)$this->ReadAttributeString('EntsoeToken'));
@@ -1351,8 +1382,17 @@ class Boersenpreis extends IPSModule
         // sicher wieder, auch wenn zwischen beiden Versionen kein Eintrag lag.
         $lib = @IPS_GetLibrary(self::LIBRARY_GUID);
         $ver = is_array($lib) ? $this->baseVersion((string)($lib['Version'] ?? '')) : '';
-        if ($ver === '' || version_compare($ver, (string)array_key_last(self::NEWS_VERSIONS), '<')) {
-            $ver = (string)array_key_last(self::NEWS_VERSIONS);
+        // Höchste bekannte News-Version über version_compare bestimmen, NIE über die Reihenfolge
+        // im Array (array_key_last) — ein neuer Eintrag an falscher Stelle würde sonst stillschweigend
+        // eine ältere Version merken und den Hinweis dauerhaft zeigen (Fund im Prüfstand 27.10.2026).
+        $hoechste = '';
+        foreach (array_keys(self::NEWS_VERSIONS) as $k) {
+            if ($hoechste === '' || version_compare((string)$k, $hoechste, '>')) {
+                $hoechste = (string)$k;
+            }
+        }
+        if ($ver === '' || version_compare($ver, $hoechste, '<')) {
+            $ver = $hoechste;
         }
         $this->WriteAttributeString('SeenNews', $ver);
         $this->UpdateFormField('NewsPanel', 'visible', false);
@@ -1645,6 +1685,8 @@ class Boersenpreis extends IPSModule
             'caption' => '📈  Börsenpreise',
             'items' => [
                 ['type' => 'Label', 'name' => 'PriceSummary', 'caption' => $this->priceSummary()],
+                ['type' => 'CheckBox', 'name' => 'ArchivePrice', 'caption' => 'Preisverlauf archivieren'],
+                ['type' => 'Label', 'name' => 'ArchiveStatus', 'caption' => $this->archiveStatus()],
                 ['type' => 'PopupButton', 'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?', 'width' => '500px', 'popup' => [
                     'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?',
                     'items' => [

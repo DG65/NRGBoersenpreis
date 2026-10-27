@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.7.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.8.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml)
@@ -86,9 +86,10 @@ ihr Wochentag.
 | `TomorrowAvailable` | Preise für morgen veröffentlicht | Bool (Ja/Nein) |
 | `MarketData` | Marktdaten (Energie Manager) | String, JSON `[{start, end, price}]` — Endpreis für den Symcon Energie Manager, siehe oben |
 
-„Börsenpreis jetzt" wird archiviert — das Modul schaltet das bei der Einrichtung einmal selbst
-ein (daraus kommt der Rückblick in `SPOT_GetPriceHistory`); wer es abschaltet, verliert nur
-diesen Rückblick.
+Der Rückblick (`SPOT_GetPriceHistory`, Diagramm vergangener Tage im NRG-Stack Dashboard) kommt
+aus dem Archiv von „Börsenpreis jetzt". Archiviert wird nur, wenn der Haken **„Preisverlauf
+archivieren"** im Panel „Börsenpreise" gesetzt ist (Vorgabe: aus); das Modul schaltet die
+Archivierung dann einmalig ein und nie wieder ab.
 
 ## Vertrag für Skripte und andere Module
 

@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.8.0] - 2026-10-27
+
+### Changed
+- **Archivierung nur auf Wunsch** (Store-Review-Checkliste 9k): Bisher schaltete das Modul die
+  Archivierung von „Börsenpreis jetzt“ bei der Einrichtung ungefragt ein. Jetzt gibt es dafür den
+  Haken **„Preisverlauf archivieren“** im Panel „Börsenpreise“, Vorgabe **aus**; eine Statuszeile
+  zeigt, ob gerade archiviert wird und was ohne Archiv fehlt (Rückblick auf vergangene Tage über
+  `SPOT_GetPriceHistory`, Diagramm im NRG-Stack Dashboard). Bestehende Installationen behalten ihre
+  Archivierung und ihre Historie — abgeschaltet wird nie automatisch.
+
 ## [0.7.0] - 2026-09-21
 
 ### Changed
