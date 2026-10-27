@@ -134,17 +134,17 @@ Button auf sichtbare Rückmeldung prüfen, einen Folgetag-Abruf nach 12:45 Uhr a
 
 ## Branch-Modell
 
-`main` trägt nur das Grundgerüst (LICENSE, README). **`beta` = Store-Kanal Beta („NRG-Stack Börsenpreis“),
-seit 16.09.2026 per Fast-Forward auf 0.6.1 nachgezogen (Dietmar „ja“).** Gebaut und gepusht wird zuerst
-auf **`ems-integration`** (SUITE.md „Verbund-weiter Arbeitsbranch", Dietmar 13.09.2026). Nach
-Bewährung Merge nach `beta`; `beta`→`main` entscheidet Dietmar. `LICENSE_URL` zeigt auf `main`
-(PolyForm von Anfang an).
+**Seit 27.10.2026 (Dietmar: alle Betas im Store auf Stable umgestellt):** `main` ist der
+ausgelieferte Stand (Store-Kanal **Stable**), `beta` der Vorlauf — gebaut und gepusht wird auf
+`beta`, nach Bewährung per Fast-Forward nach `main`. Der frühere Verbund-Arbeitsbranch
+`ems-integration` entfällt; er bleibt nur stehen, solange noch eine Symcon-Installation ihn
+verfolgt. `LICENSE_URL` zeigt auf `main` (PolyForm von Anfang an).
 
-**GitHub-Standard-Branch = `ems-integration`** (seit 13.09.2026): Die Modulverwaltung klont beim
-Anlegen den Standard-Branch — lag er auf dem Grundgerüst-`main` ohne `library.json`, brach die
-Installation mit „This repository seems corrupted. library.json is at least missing!
-(Code: -32603)" ab (live bei Dietmar). Erst zurück auf `main` stellen, wenn `main` selbst ein
-lauffähiges Modul trägt (`gh repo edit DG65/NRGBoersenpreis --default-branch main`).
+**GitHub-Standard-Branch = `main`** (seit 27.10.2026, vorher `ems-integration`): Die
+Modulverwaltung klont beim Anlegen den Standard-Branch — der muss ein lauffähiges Modul tragen.
+Lag er auf dem alten Grundgerüst-`main` ohne `library.json`, brach die Installation mit „This
+repository seems corrupted. library.json is at least missing! (Code: -32603)" ab (live bei
+Dietmar 13.09.2026). Umstellen mit `gh repo edit DG65/NRGBoersenpreis --default-branch main`.
 
 ## Roadmap / bewusst nicht drin
 
