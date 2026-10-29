@@ -74,6 +74,9 @@ class Boersenpreis extends IPSModule
         '0.8.0' => [
             'Neuer Haken „Preisverlauf archivieren“ im Panel „Börsenpreise“ (Vorgabe: aus). Nur mit Haken schaltet das Modul die Archivierung von „Börsenpreis jetzt“ ein — die Grundlage für den Rückblick auf vergangene Tage. Eine Statuszeile sagt, was gerade gilt. Wer bisher schon archiviert hat, behält alles; abgeschaltet wird nie automatisch.',
         ],
+        '0.9.0' => [
+            '🪟 Neu: Formular-Aufbau selbst wählen — im Panel „Formular: Aufbau“ legst du fest, welche Bereiche beim Öffnen aufgeklappt sind, in welcher Reihenfolge sie stehen und ob du einen davon ausblendest. Ausgeblendete Bereiche arbeiten weiter, nur die Anzeige fehlt.',
+        ],
     ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
@@ -168,6 +171,8 @@ class Boersenpreis extends IPSModule
         // anderen falsch (Lehre Tibber 2.8.1, keine eigene Anlage als Norm).
         // Store-Review-Checkliste 9k (28.09.2026): archivbezogene Schalter stehen als Vorgabe AUS,
         // der Nutzer stimmt bewusst zu. Einmal eingeschaltete Archivierung wird NIE wieder abgeschaltet.
+        // Reihenfolge/Aufklapp-Zustand der Fachpanels (SUITE.md „🪟 Formular: Aufbau", 29.10.2026)
+        $this->RegisterPropertyString('FormLayout', '[]');
         $this->RegisterPropertyBoolean('ArchivePrice', false);
         $this->RegisterPropertyBoolean('UseTibberPrice', true);
         // 0 = automatisch (genau eine Instanz); bei mehreren wird nicht geraten (SUITE.md, 21.09.2026).
@@ -1822,15 +1827,125 @@ class Boersenpreis extends IPSModule
         ];
     }
 
+    /** Die wählbaren Fachpanels mit stabilem Schlüssel (Caption darf sich ändern, der Schlüssel nicht). */
+    private function fachPanels(): array
+    {
+        return [
+            'quelle' => $this->SourcePanel(),
+            'preise' => $this->PricePanel(),
+            'tarif'  => $this->TariffPanel(),
+        ];
+    }
+
+    /**
+     * Reihenfolge und Aufklapp-Zustand der Fachpanels aus der Einstellung „FormLayout"
+     * (SUITE.md „🪟 Formular: Aufbau"). Unbekannte Schlüssel fallen auf Standard zurück, ein neues
+     * Fachpanel erscheint dadurch nach einem Update automatisch an seinem Standardplatz.
+     */
+    private function formLayout(array $keys): array
+    {
+        $saved = json_decode((string)$this->ReadPropertyString('FormLayout'), true);
+        $by = [];
+        foreach (is_array($saved) ? $saved : [] as $row) {
+            if (is_array($row) && isset($row['Key'])) {
+                $by[(string)$row['Key']] = $row;
+            }
+        }
+        $out = [];
+        foreach ($keys as $i => $k) {
+            $r = $by[$k] ?? [];
+            // Widerspruch: ausgeblendet vor zugeklappt vor aufgeklappt; kein Haken = Standard
+            $open = !empty($r['Hidden']) ? 'hidden' : (!empty($r['Closed']) ? 'closed' : (!empty($r['Opened']) ? 'open' : 'std'));
+            $out[$k] = [
+                'open' => $open,
+                'pos'  => isset($r['Pos']) ? max(1, min(99, (int)$r['Pos'])) : $i + 1,
+                'idx'  => $i,
+            ];
+        }
+        uasort($out, fn($a, $b) => [$a['pos'], $a['idx']] <=> [$b['pos'], $b['idx']]);
+        return $out;
+    }
+
+    private function LayoutPanel(array $layout, array $frei): array
+    {
+        $rows = [];
+        $hidden = [];
+        foreach ($layout as $key => $l) {
+            $name = trim((string)preg_replace('/\s*\(.*$/u', '', (string)($frei[$key]['caption'] ?? $key)));
+            $rows[] = ['Key' => $key, 'Panel' => $name, 'Opened' => $l['open'] === 'open', 'Closed' => $l['open'] === 'closed',
+                'Hidden' => $l['open'] === 'hidden', 'Pos' => $l['pos']];
+            if ($l['open'] === 'hidden') {
+                $hidden[] = trim((string)preg_replace('/^[^\p{L}\p{N}]+/u', '', $name));
+            }
+        }
+        $hiddenLine = $hidden
+            ? [['type' => 'Label', 'caption' => '🙈 Ausgeblendet: ' . implode(', ', $hidden) . ' — zum Wiederzeigen den Haken bei „Ausgeblendet" entfernen. Ausgeblendete Bereiche arbeiten weiter, nur die Anzeige fehlt.']]
+            : [];
+        return [
+            'type' => 'ExpansionPanel', 'expanded' => false,
+            'caption' => '🪟  Formular: Aufbau' . ($hidden ? ' (' . count($hidden) . ' ausgeblendet)' : ''),
+            'items' => array_merge($hiddenLine, [
+                ['type' => 'Label', 'caption' => 'Hier legst du fest, welche Bereiche beim Öffnen des Formulars aufgeklappt sind und in welcher Reihenfolge sie stehen. Symcon merkt sich das Auf- und Zuklappen nicht selbst, deshalb gilt die Einstellung hier jedes Mal beim Öffnen. Sie wirkt nach „Übernehmen" beim nächsten Öffnen des Formulars.'],
+                ['type' => 'Label', 'caption' => 'Kein Haken heißt „Standard": wie das Modul es vorsieht. Die Position ist eine Zahl; bei gleicher Zahl bleibt die Standardreihenfolge. „Ausgeblendet" nimmt einen Bereich aus der Anzeige, ohne dass er etwas verliert: seine Einstellungen bleiben erhalten und wirken weiter — der Tarif für den Energie Manager wird also weiter gerechnet, auch wenn sein Bereich ausgeblendet ist. Sind mehrere Haken gesetzt, gilt „Ausgeblendet" vor „Zugeklappt" vor „Aufgeklappt". Die Bereiche oben („Wozu dieses Modul?", „Neu", „Dokumentation & Hilfe") und unten („Feedback im Symcon-Forum", „Über dieses Modul") bleiben, wo sie sind, und lassen sich nicht ausblenden.'],
+                [
+                    'type' => 'List', 'name' => 'FormLayout', 'caption' => 'Bereiche', 'rowCount' => count($rows), 'add' => false, 'delete' => false,
+                    'loadValuesFromConfiguration' => false,
+                    'values' => $rows,
+                    'columns' => [
+                        ['caption' => 'Bereich', 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
+                        ['caption' => 'Schlüssel', 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
+                        ['caption' => 'Aufgeklappt', 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => 'Zugeklappt', 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => '🙈 Ausgeblendet', 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => 'Position', 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]],
+                    ],
+                ],
+                ['type' => 'Button', 'caption' => '↩️ Auf Standard zurücksetzen', 'onClick' => 'echo SPOT_ResetFormLayout($id);'],
+            ]),
+        ];
+    }
+
+    /**
+     * SPOT_ResetFormLayout($id): string — Aufbau des Formulars auf Standard zurücksetzen.
+     * Schreibt nur ins offene Formular (keine Selbstpersistenz, Store-Review-Checkliste 1/9l).
+     */
+    public function ResetFormLayout(): string
+    {
+        $rows = [];
+        foreach (array_keys($this->fachPanels()) as $i => $key) {
+            $name = trim((string)preg_replace('/\s*\(.*$/u', '', (string)($this->fachPanels()[$key]['caption'] ?? $key)));
+            $rows[] = ['Key' => $key, 'Panel' => $name, 'Opened' => false, 'Closed' => false, 'Hidden' => false, 'Pos' => $i + 1];
+        }
+        $this->UpdateFormField('FormLayout', 'values', json_encode($rows, JSON_UNESCAPED_UNICODE));
+        return 'ℹ️ Auf Standard gesetzt. Zum Speichern unten „Übernehmen" klicken.';
+    }
+
     public function GetConfigurationForm()
     {
         $base   = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
         $status = $base['status'] ?? [];
 
+        // Oben und unten stehen die Panels der Verbund-Konvention fest; dazwischen die Fachpanels,
+        // deren Reihenfolge und Aufklapp-Zustand der Nutzer im Panel „Formular: Aufbau" wählt.
+        $frei = $this->fachPanels();
+        $layout = $this->formLayout(array_keys($frei));
+        $mitte = [];
+        foreach ($layout as $key => $l) {
+            $panel = $frei[$key];
+            if ($l['open'] === 'open') {
+                $panel['expanded'] = true;
+            } elseif ($l['open'] === 'closed') {
+                $panel['expanded'] = false;
+            } elseif ($l['open'] === 'hidden') {
+                // Nicht weglassen: Felder bleiben im Formular, gespeicherte Werte überleben „Übernehmen".
+                $panel['visible'] = false;
+            }
+            $mitte[] = $panel;
+        }
         $elements = array_values(array_filter(array_merge(
             [$this->PurposeIntro(), $this->NewsBanner(), $this->DocPanel()],
-            [$this->SourcePanel(), $this->PricePanel(), $this->TariffPanel()],
-            [$this->ForumHint(), $this->LicenseHint()]
+            $mitte,
+            [$this->LayoutPanel($layout, $frei), $this->ForumHint(), $this->LicenseHint()]
         )));
 
         return json_encode(['elements' => $elements, 'actions' => [], 'status' => $status]);

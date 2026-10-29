@@ -449,8 +449,9 @@ $GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
 $m->ApplyChanges();
 $f = form($m);
 $caps = array_map(fn($e) => $e['caption'] ?? '', $f['elements']);
-check('Reihenfolge: Zweck → Neu → Doku → Datenquelle → Börsenpreise → Rückmeldungen → Über', ($f['elements'][0]['name'] ?? '') === 'PurposeIntroPanel' && ($f['elements'][1]['name'] ?? '') === 'NewsPanel'
-    && str_contains($caps[2], 'Dokumentation') && str_contains($caps[3], 'Datenquelle') && str_contains($caps[4], 'Börsenpreise') && str_contains($caps[5], 'Energie Manager') && ($f['elements'][6]['name'] ?? '') === 'ForumHintPanel' && str_contains($caps[7], 'Über dieses Modul'), implode(' | ', $caps));
+check('Reihenfolge: Zweck → Neu → Doku → Fachpanels → Aufbau → Rückmeldungen → Über', ($f['elements'][0]['name'] ?? '') === 'PurposeIntroPanel' && ($f['elements'][1]['name'] ?? '') === 'NewsPanel'
+    && str_contains($caps[2], 'Dokumentation') && str_contains($caps[3], 'Datenquelle') && str_contains($caps[4], 'Börsenpreise') && str_contains($caps[5], 'Energie Manager')
+    && str_contains($caps[6], 'Formular: Aufbau') && ($f['elements'][7]['name'] ?? '') === 'ForumHintPanel' && str_contains($caps[8], 'Über dieses Modul'), implode(' | ', $caps));
 check('Status-Codes 102/201 beschriftet (kein Warnstatus > 200 für harmlose Abruffehler)', array_column($f['status'], 'code') === [102, 201]);
 $txt = formText($f);
 check('Kopfzeile ✅ mit Zeitpunkt TT.MM.JJJJ, Übersicht mit Heute/Morgen', str_contains($txt, '✅ Zuletzt abgerufen 12.09.2026 13:10:00 Uhr') && str_contains($txt, 'Heute: 96 Viertelstunden') && str_contains($txt, 'Morgen: 96 Viertelstunden'));
@@ -967,28 +968,28 @@ $GLOBALS['VARS'] = [];
 $n1 = new SpotTest();
 $n1->Create();
 $p1 = $news($n1);
-check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.8.0'
-    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.8.0:'), $p1['caption'] ?? '-');
+check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.9.0'
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.9.0:'), $p1['caption'] ?? '-');
 $n1->attrs['SeenNews'] = '0.6.0';
 $p2 = $news($n1);
 check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
     && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
-$n1->attrs['SeenNews'] = '0.8.0';
+$n1->attrs['SeenNews'] = '0.9.0';
 check('Alles gesehen: kein Banner', $news($n1) === null);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.8.0-beta.2';
+$GLOBALS['LIB_VERSION'] = '0.9.0-beta.2';
 $n1->AckNews();
-check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.8.0-beta.2 → 0.8.0)', $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.9.0-beta.2 → 0.9.0)', $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null, $n1->attrs['SeenNews']);
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.9.1';
 $n1->AckNews();
 check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.9.1)', $n1->attrs['SeenNews'] === '0.9.1');
 check('Die höchste News-Version kommt aus version_compare, nicht aus der Reihenfolge im Array',
-    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null; })());
+    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null; })());
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
-check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.8.0' && $news($n1) === null);
+check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null);
 
 heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
@@ -1031,6 +1032,77 @@ $GLOBALS['INSTANCES'] = []; // Tibber Grid Rewards verschwindet (z. B. Modul-Upd
 $boot->ApplyChanges();
 check('Fehlendes Partnermodul löscht keine Variablen', count($GLOBALS['VARS']) === $vorher);
 $GLOBALS['LOG'] = [];
+
+heading('30. „🪟 Formular: Aufbau“ — Reihenfolge, Aufklapp-Zustand, Ausblenden (SUITE.md 3a, 29.10.2026)');
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = [];
+$GLOBALS['REQUESTS'] = []; $GLOBALS['HTTP'] = [];
+$L = fresh();
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$L->ApplyChanges();
+$caps = fn(SpotTest $o) => array_map(fn($e) => $e['caption'] ?? ($e['name'] ?? ''), form($o)['elements']);
+$panel = function (SpotTest $o, string $teil) {
+    foreach (form($o)['elements'] as $e) {
+        if (str_contains((string)($e['caption'] ?? ''), $teil)) { return $e; }
+    }
+    return null;
+};
+$layoutRows = function (SpotTest $o) use ($panel) {
+    foreach ($panel($o, 'Formular: Aufbau')['items'] as $it) {
+        if (($it['name'] ?? '') === 'FormLayout') { return $it; }
+    }
+    return null;
+};
+check('Standard: Panel „Formular: Aufbau" sitzt nach den Fachpanels, vor dem Forum-Hinweis, eingeklappt',
+    ($panel($L, 'Formular: Aufbau')['expanded'] ?? true) === false
+    && array_search('🪟  Formular: Aufbau', $caps($L), true) === 6, implode(' | ', $caps($L)));
+$liste = $layoutRows($L);
+check('Liste zeigt die drei Fachpanels mit stabilem Schlüssel, Standard ohne Haken, Position 1–3',
+    array_column($liste['values'], 'Key') === ['quelle', 'preise', 'tarif'] && array_column($liste['values'], 'Pos') === [1, 2, 3]
+    && count(array_filter($liste['values'], fn($r) => $r['Opened'] || $r['Closed'] || $r['Hidden'])) === 0
+    && ($liste['loadValuesFromConfiguration'] ?? true) === false);
+check('Schlüsselspalte unsichtbar, aber gespeichert (save: true)', count(array_filter($liste['columns'], fn($c) => ($c['name'] ?? '') === 'Key' && ($c['visible'] ?? true) === false && ($c['save'] ?? false) === true)) === 1);
+// Eigene Reihenfolge + Zustände
+$L->props['FormLayout'] = json_encode([
+    ['Key' => 'tarif', 'Opened' => true, 'Closed' => false, 'Hidden' => false, 'Pos' => 1],
+    ['Key' => 'quelle', 'Opened' => false, 'Closed' => true, 'Hidden' => false, 'Pos' => 2],
+    ['Key' => 'preise', 'Opened' => false, 'Closed' => false, 'Hidden' => true, 'Pos' => 3],
+]);
+$els = form($L)['elements'];
+$c = array_map(fn($e) => $e['caption'] ?? ($e['name'] ?? ''), $els);
+check('Gewählte Reihenfolge gilt: Tarif, Datenquelle, Börsenpreise', str_contains($c[3], 'Energie Manager') && str_contains($c[4], 'Datenquelle') && str_contains($c[5], 'Börsenpreise'), implode(' | ', $c));
+check('Aufgeklappt/zugeklappt wie gewählt', ($els[3]['expanded'] ?? null) === true && ($els[4]['expanded'] ?? null) === false);
+check('Ausgeblendet = visible:false, Panel bleibt im Formular (Werte gehen nicht verloren)', ($els[5]['visible'] ?? null) === false && str_contains(formText(form($L)), 'ArchivePrice'));
+check('Caption nennt die Zahl, eine Zeile sagt welcher Bereich und wie man ihn zurückholt', str_contains($panel($L, 'Formular: Aufbau')['caption'], '(1 ausgeblendet)')
+    && str_contains(json_encode($panel($L, 'Formular: Aufbau'), JSON_UNESCAPED_UNICODE), '🙈 Ausgeblendet: Börsenpreise'));
+// Widerspruch und Grenzen
+$L->props['FormLayout'] = json_encode([['Key' => 'quelle', 'Opened' => true, 'Closed' => true, 'Hidden' => true, 'Pos' => 300]]);
+$els = form($L)['elements'];
+check('Mehrere Haken: ausgeblendet vor zugeklappt vor aufgeklappt; Position wird auf 1–99 begrenzt',
+    count(array_filter($els, fn($e) => str_contains((string)($e['caption'] ?? ''), 'Datenquelle') && ($e['visible'] ?? null) === false)) === 1
+    && ($layoutRows($L)['values'][2]['Pos'] ?? 0) === 99);
+// Unbekannter Schlüssel (Panel entfernt) und fehlender Schlüssel (Panel neu)
+$L->props['FormLayout'] = json_encode([
+    ['Key' => 'gibtsnichtmehr', 'Opened' => false, 'Closed' => true, 'Hidden' => false, 'Pos' => 1],
+    ['Key' => 'tarif', 'Opened' => false, 'Closed' => true, 'Hidden' => false, 'Pos' => 2],
+]);
+$c = array_map(fn($e) => $e['caption'] ?? ($e['name'] ?? ''), form($L)['elements']);
+check('Unbekannter Schlüssel wird übergangen, fehlende Panels stehen auf Standardplatz', str_contains($c[3], 'Datenquelle') && str_contains($c[4], 'Börsenpreise') && str_contains($c[5], 'Energie Manager'), implode(' | ', $c));
+$L->props['FormLayout'] = 'kaputt';
+check('Unlesbare Einstellung: Standard statt Absturz', count(form($L)['elements']) === 9);
+// Zurücksetzen
+$L->props['FormLayout'] = json_encode([['Key' => 'tarif', 'Opened' => false, 'Closed' => false, 'Hidden' => true, 'Pos' => 1]]);
+$L->fieldUpdates = [];
+$r = $L->ResetFormLayout();
+$upd = array_values(array_filter($L->fieldUpdates, fn($u) => $u[0] === 'FormLayout'));
+$neu = json_decode($upd[0][2] ?? '[]', true);
+check('„Auf Standard zurücksetzen": Rückmeldung im Klartext, Liste ohne Haken in Standardreihenfolge, keine Selbstpersistenz',
+    str_contains($r, 'Übernehmen') && ($upd[0][1] ?? '') === 'values' && array_column($neu, 'Key') === ['quelle', 'preise', 'tarif']
+    && count(array_filter($neu, fn($x) => $x['Opened'] || $x['Closed'] || $x['Hidden'])) === 0
+    && $L->props['FormLayout'] !== '[]', $r);
+$codeLayout = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
+check('Reset-Knopf gibt die Rückmeldung per echo aus (sichtbare Rückmeldung, Checkliste 13)', str_contains($codeLayout, "echo SPOT_ResetFormLayout(\$id);"));
+$GLOBALS['REQUESTS'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

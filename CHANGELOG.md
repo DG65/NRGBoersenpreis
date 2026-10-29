@@ -3,6 +3,19 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.9.0] - 2026-10-29
+
+### Added
+- **„🪟 Formular: Aufbau“** (Verbund-Konvention SUITE.md 3a, Vorbild Batteriewächter): Neues Panel
+  nach den Fachpanels, eingeklappt. Je Fachpanel („Datenquelle“, „Börsenpreise“, „Symcon Energie
+  Manager & Tarif“) wählbar: **Aufgeklappt**, **Zugeklappt**, **🙈 Ausgeblendet** und eine
+  **Position** 1–99; kein Haken = Standard, bei Widerspruch gilt ausgeblendet vor zugeklappt vor
+  aufgeklappt. Ausgeblendete Bereiche bleiben mit `visible: false` im Formular — ihre Einstellungen
+  bleiben erhalten und wirken weiter (der Tarif wird also weiter gerechnet). Gespeichert in der
+  neuen Property `FormLayout` über einen stabilen Schlüssel je Panel; unbekannte Schlüssel fallen
+  auf Standard zurück. Knopf **„↩️ Auf Standard zurücksetzen“** (`SPOT_ResetFormLayout`) schreibt
+  nur ins offene Formular, gespeichert wird erst mit „Übernehmen“.
+
 ## [0.8.0] - 2026-10-27
 
 ### Changed
