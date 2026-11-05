@@ -120,6 +120,18 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
   „Strompreis“-Rechnung aus 0.3/0.4 ist entfallen. Format dort nicht dokumentiert — Referenz ist
   der Quellcode von symcon/Strompreis (Commit 75f71d6, 08.07.2026).
 
+## Zweisprachig DE/EN (seit 0.10.0, SUITE.md Konvention 9)
+
+Quelltexte im Code sind **englisch** und laufen durch `$this->t('…', …)` (sprintf-Argumente für
+zusammengesetzte Sätze); die deutschen Fassungen stehen in `Boersenpreis/locale.json`, ebenso die
+Statuszeilen aus `form.json`. **Deutsch ist die maßgebliche Fassung** — bei neuen Texten zuerst den
+deutschen Wortlaut festlegen, dann ein eigenständiges englisches Fachenglisch dazu.
+`german()`/`num()`/`dt()` formatieren Zahlen und Datum je Sprache; `german()` fragt genau einmal je
+Formularaufbau (Stolperstein 24, Sprachcache `istDeutsch` wird in `GetConfigurationForm()`
+zurückgesetzt). Kennungen (Idents, Properties, Funktionsnamen, Vertragsfelder) bleiben IMMER
+unverändert. Prüfstand Block 31 prüft beide Sprachen; alle übrigen Blöcke laufen gegen die
+deutschen Texte (Harness-`Translate()` liest die echte locale.json, `$GLOBALS['LOCALE']`).
+
 ## Prüfen
 
 ```
