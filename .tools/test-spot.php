@@ -117,6 +117,15 @@ class IPSModule
     public function SetTimerInterval(string $n, int $ms): void { $this->timers[$n] = $ms; }
     public function RegisterMessage(int $sender, int $msg): void {}
     public function SendDebug(string $a, string $b, int $c): void { $this->debug[] = "$a: $b"; }
+    // Übersetzung: der Prüfstand liest die echte locale.json und prüft damit beide Sprachen.
+    public function Translate(string $text): string
+    {
+        $GLOBALS['TRANSLATE_CALLS'] = ($GLOBALS['TRANSLATE_CALLS'] ?? 0) + 1;
+        $lang = $GLOBALS['LOCALE'] ?? 'de';   // Prüfstand läuft in der Referenzsprache Deutsch
+        if ($lang === 'en') { return $text; }
+        $loc = json_decode((string)@file_get_contents(dirname(__DIR__) . '/Boersenpreis/locale.json'), true);
+        return (string)($loc['translations'][$lang][$text] ?? $text);
+    }
     public function LogMessage(string $text, int $level): void { $GLOBALS['LOG'][] = $level . ': ' . $text; }
     public function UpdateFormField(string $n, string $p, $v): void { $this->fieldUpdates[] = [$n, $p, $v]; }
     public function MaintainVariable(string $ident, string $name, int $type, string $profile, int $pos, bool $keep): void
@@ -968,28 +977,28 @@ $GLOBALS['VARS'] = [];
 $n1 = new SpotTest();
 $n1->Create();
 $p1 = $news($n1);
-check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.9.0'
-    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.9.0:'), $p1['caption'] ?? '-');
+check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.10.0'
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.10.0:'), $p1['caption'] ?? '-');
 $n1->attrs['SeenNews'] = '0.6.0';
 $p2 = $news($n1);
 check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
     && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
-$n1->attrs['SeenNews'] = '0.9.0';
+$n1->attrs['SeenNews'] = '0.10.0';
 check('Alles gesehen: kein Banner', $news($n1) === null);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.9.0-beta.2';
+$GLOBALS['LIB_VERSION'] = '0.10.0-beta.2';
 $n1->AckNews();
-check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.9.0-beta.2 → 0.9.0)', $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.10.0-beta.2 → 0.10.0)', $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null, $n1->attrs['SeenNews']);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.9.1';
+$GLOBALS['LIB_VERSION'] = '0.11.1';
 $n1->AckNews();
-check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.9.1)', $n1->attrs['SeenNews'] === '0.9.1');
+check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.11.1)', $n1->attrs['SeenNews'] === '0.11.1');
 check('Die höchste News-Version kommt aus version_compare, nicht aus der Reihenfolge im Array',
-    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null; })());
+    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null; })());
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
-check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.9.0' && $news($n1) === null);
+check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null);
 
 heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
@@ -1102,6 +1111,60 @@ check('„Auf Standard zurücksetzen": Rückmeldung im Klartext, Liste ohne Hake
     && $L->props['FormLayout'] !== '[]', $r);
 $codeLayout = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
 check('Reset-Knopf gibt die Rückmeldung per echo aus (sichtbare Rückmeldung, Checkliste 13)', str_contains($codeLayout, "echo SPOT_ResetFormLayout(\$id);"));
+$GLOBALS['REQUESTS'] = [];
+
+heading('31. Zweisprachig DE/EN (SUITE.md Konvention 9, 05.11.2026)');
+$mod = getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php';
+$codeI18n = file_get_contents($mod);
+$locale = json_decode((string)file_get_contents(dirname(__DIR__) . '/Boersenpreis/locale.json'), true);
+$deTexte = $locale['translations']['de'] ?? [];
+// 1. Jeder $this->t('…')-Quelltext steht in locale.json
+preg_match_all("/\\\$this->t\\(\\s*'((?:[^'\\\\\\\\]|\\\\\\\\.)*)'/", $codeI18n, $mm);
+$quellen = array_values(array_unique(array_map(fn($x) => str_replace("\\\\'", "'", $x), $mm[1])));
+$fehlen = array_values(array_filter($quellen, fn($q) => !isset($deTexte[$q])));
+check('Jeder übersetzte Text im Code hat eine deutsche Fassung in locale.json (' . count($quellen) . ' Texte)', count($fehlen) === 0, implode(' | ', array_slice($fehlen, 0, 3)));
+// 2. Kein deutscher Text mehr im Code (Quelltexte sind englisch)
+$deutschImCode = array_values(array_filter($quellen, fn($q) => (bool)preg_match('/\b(und|oder|nicht|keine|wird|werden|für|Viertelstunde|Preise|Uhr)\b/u', $q)));
+check('Keine deutschen Quelltexte mehr im Code', count($deutschImCode) === 0, implode(' | ', array_slice($deutschImCode, 0, 3)));
+// 3. Auch form.json und die Statuszeilen sind englisch
+$formJson = file_get_contents(dirname(__DIR__) . '/Boersenpreis/form.json');
+check('form.json englisch, deutsche Fassung in locale.json', !preg_match('/[äöüÄÖÜß]/u', $formJson)
+    && isset($deTexte['Active — exchange prices for the current quarter hour are available']));
+// 4. Deutsche Übersetzungen sind gepflegt: keine leeren, keine mit englischem Original identischen
+// Gleich sein dürfen nur kurze Bezeichner, die in beiden Sprachen gleich lauten (z. B. „Apr–Jun").
+$leer = array_values(array_filter($deTexte, fn($v, $k) => trim((string)$v) === '' || ($v === $k && mb_strlen((string)$k) > 12), ARRAY_FILTER_USE_BOTH));
+check('Alle deutschen Übersetzungen gefüllt und nicht nur aus dem Englischen kopiert', count($leer) === 0, implode(' | ', array_slice($leer, 0, 3)));
+// 5. Dasselbe Formular einmal auf Englisch: nichts Deutsches darf übrig bleiben
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = [];
+$GLOBALS['REQUESTS'] = []; $GLOBALS['HTTP'] = [];
+$en = fresh();
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$en->ApplyChanges();
+$GLOBALS['LOCALE'] = 'en';
+$enForm = formText(form($en));
+$GLOBALS['LOCALE'] = 'de';
+$deForm = formText(form($en));
+$deutscheReste = [];
+foreach (['Viertelstunde', 'Börsenpreis jetzt', 'Datenquelle', 'Preise', 'Übernehmen', 'ausgeblendet'] as $wort) {
+    if (str_contains($enForm, $wort)) { $deutscheReste[] = $wort; }
+}
+check('Englisches Formular enthält keine deutschen Wörter mehr', count($deutscheReste) === 0, implode(', ', $deutscheReste));
+check('Englisches Formular: Beträge mit Punkt, Listen-/Knopf-Beschriftungen englisch (' . 'Umlagen/Knöpfe' . ')', str_contains($enForm, 'electricity tax 2.050')
+    && str_contains($enForm, 'View licence text') && str_contains($enForm, 'Donate via PayPal') && !str_contains($enForm, 'Lizenztext'));
+check('Englisches Formular nennt die englischen Überschriften', str_contains($enForm, '🔌  Data source') && str_contains($enForm, '📈  Exchange prices')
+    && str_contains($enForm, '⚡  Symcon Energy Manager & tariff') && str_contains($enForm, '🪟  Form: layout'));
+check('Deutsches Formular bleibt unverändert deutsch', str_contains($deForm, '🔌  Datenquelle') && str_contains($deForm, '📈  Börsenpreise'));
+// 6. Zahlen und Datum folgen der Sprache
+$GLOBALS['LOCALE'] = 'en';
+$enStatus = formText(form($en));
+$GLOBALS['LOCALE'] = 'de';
+check('Zahlen englisch mit Punkt, deutsch mit Komma', preg_match('/\d+\.\d\d ct\/kWh/', $enStatus) === 1
+    && preg_match('/\d+,\d\d ct\/kWh/', formText(form($en))) === 1);
+// 7. Stolperstein 24: ein Viertelstunden-Takt übersetzt nicht hunderte Texte
+$GLOBALS['TRANSLATE_CALLS'] = 0;
+$en->Tick();
+check('Tick übersetzt höchstens 20 Texte (kein Translate-Sturm je Durchlauf)', $GLOBALS['TRANSLATE_CALLS'] <= 20, (string)$GLOBALS['TRANSLATE_CALLS']);
 $GLOBALS['REQUESTS'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";

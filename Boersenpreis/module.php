@@ -39,6 +39,9 @@
 
 class Boersenpreis extends IPSModule
 {
+    /** Sprache der Oberfläche, einmal je Durchlauf ermittelt (null = noch nicht gefragt). */
+    private ?bool $istDeutsch = null;
+
     private const LIBRARY_GUID = '{A5CA79FD-57C6-4F6E-A33B-61BCC2B0C9A7}';
     private const MODULE_GUID  = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
 
@@ -58,24 +61,27 @@ class Boersenpreis extends IPSModule
     // gewachsene Liste bleibt als EIN Block unter ihrer letzten NEWS_VERSION-Nummer (0.6.0).
     private const NEWS_VERSIONS = [
         '0.6.0' => [
-            'Neuer Name: Das Modul heißt jetzt überall „Börsenpreis“ (Repo DG65/NRGBoersenpreis). Funktionen, Variablen und die Anbindung an andere Module bleiben unverändert.',
-            '„Wozu dieses Modul?“ lässt sich im Panel „Dokumentation & Hilfe“ wieder einblenden. Weggeklickte Hinweise gelten jetzt für alle Börsenpreis-Instanzen. Texte nutzen wieder die volle Formularbreite.',
-            'Seit 0.5: Tarif für den Symcon Energie Manager (Panel „Symcon Energie Manager & Tarif“) — mit Tibber Grid Rewards dein echter Tibber-Preis, sonst dein Endpreis aus Börsenpreis, Aufschlag, Netzentgelt (auch nach § 14a Modul 3, getrennt für Werktage und Wochenende), Konzessionsabgabe, Umlagen und Mehrwertsteuer.',
-            'Seit 0.3/0.4: weitere Quellen „EPEX Spot (über ENTSO-E)“ (mit kostenlosem Zugangsschlüssel) und „Tibber-Preisübersicht“ (ohne Konto, per Postleitzahl) sowie die Variable „Marktdaten (Energie Manager)“ für Symcons Energie Manager.',
-            'Seit 0.2: Preisverlauf aus dem Archiv (SPOT_GetPriceHistory), Anzeige im NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis“).',
+            'New name: the module is now called „Börsenpreis“ everywhere (repository DG65/NRGBoersenpreis). Functions, variables and the links to other modules stay unchanged.',
+            '„What is this module for?“ can be shown again from the „Documentation & help“ panel. Dismissed notes now apply to all Börsenpreis instances. Texts use the full form width again.',
+            'Since 0.5: tariff for the Symcon Energy Manager (panel „Symcon Energy Manager & tariff“) — with Tibber Grid Rewards your real Tibber price, otherwise your retail price from exchange price, supplier surcharge, grid fee (including § 14a module 3, separately for weekdays and weekends), concession levy, levies and VAT.',
+            'Since 0.3/0.4: additional sources „EPEX Spot (via ENTSO-E)“ (with a free access key) and „Tibber price overview“ (no account, by postal code) plus the variable „Market data (Energy Manager)“ for Symcon\'s Energy Manager.',
+            'Since 0.2: price history from the archive (SPOT_GetPriceHistory), shown in the NRG-Stack dashboard (PV monitoring, tab „Strompreis“).',
         ],
         '0.6.1' => [
-            'Der Knopf „Zum Forums-Thread“ im Panel „💬  Feedback im Symcon-Forum“ führt jetzt zum veröffentlichten Vorstellungs-Thread.',
+            'The button „To the forum thread“ in the panel „💬  Feedback in the Symcon forum“ now leads to the published introduction thread.',
         ],
         '0.7.0' => [
-            'Panel „Symcon Energie Manager & Tarif“: Die Statuszeile zeigt jetzt genau, ob Tibber Grid Rewards gefunden wurde, welche Instanz, welche Vertragsversion und welchen Endpreis sie gerade liefert — und sie folgt deinen Häkchen sofort, noch vor „Übernehmen“.',
-            'Kommt dein Endpreis automatisch von Tibber Grid Rewards, sind die Tarif-Felder ausgeblendet und eine grüne 🔗-Zeile zeigt den übernommenen Preis. Bei mehreren Tibber-Instanzen wählst du die richtige aus, statt dass das Modul rät.',
+            'Panel „Symcon Energy Manager & tariff“: the status line now shows exactly whether Tibber Grid Rewards was found, which instance, which contract version and which retail price it currently delivers — and it follows your checkboxes immediately, even before „Apply“.',
+            'If your retail price comes automatically from Tibber Grid Rewards, the tariff fields are hidden and a green 🔗 line shows the price taken over. With several Tibber instances you pick the right one instead of the module guessing.',
         ],
         '0.8.0' => [
-            'Neuer Haken „Preisverlauf archivieren“ im Panel „Börsenpreise“ (Vorgabe: aus). Nur mit Haken schaltet das Modul die Archivierung von „Börsenpreis jetzt“ ein — die Grundlage für den Rückblick auf vergangene Tage. Eine Statuszeile sagt, was gerade gilt. Wer bisher schon archiviert hat, behält alles; abgeschaltet wird nie automatisch.',
+            'New checkbox „Archive price history“ in the panel „Exchange prices“ (default: off). Only with the box ticked does the module switch on archiving of „Exchange price now“ — the basis for looking back at past days. A status line says what currently applies. Anyone already archiving keeps everything; archiving is never switched off automatically.',
         ],
         '0.9.0' => [
-            '🪟 Neu: Formular-Aufbau selbst wählen — im Panel „Formular: Aufbau“ legst du fest, welche Bereiche beim Öffnen aufgeklappt sind, in welcher Reihenfolge sie stehen und ob du einen davon ausblendest. Ausgeblendete Bereiche arbeiten weiter, nur die Anzeige fehlt.',
+            '🪟 New: choose the form layout yourself — in the panel „Form: layout“ you decide which sections are expanded when the form opens, in which order they appear and whether you hide one of them. Hidden sections keep working, only the display is missing.',
+        ],
+        '0.10.0' => [
+            'The module now speaks German and English: form, messages, variable names and status lines follow the Symcon language setting (option „Locale“). Numbers and dates follow the language as well. German stays the reference wording.',
         ],
     ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
@@ -138,8 +144,8 @@ class Boersenpreis extends IPSModule
     // Gebotszonen, die beide Quellen liefern und deren Energy-Charts-Daten
     // unter CC BY 4.0 stehen (andere Zonen dort teils nur privat nutzbar).
     private const ZONES = [
-        'DE-LU' => 'Deutschland/Luxemburg (DE-LU)',
-        'AT'    => 'Österreich (AT)',
+        'DE-LU' => 'Germany/Luxembourg (DE-LU)',
+        'AT'    => 'Austria (AT)',
     ];
 
     private const HTTP_TIMEOUT       = 15;
@@ -227,13 +233,13 @@ class Boersenpreis extends IPSModule
 
         $this->ensureProfiles();
         $this->adoptDismissFromSibling();
-        $this->MaintainVariable('CurrentPrice', 'Börsenpreis jetzt', VARIABLETYPE_FLOAT, 'SPOT.CentKWh', 1, true);
-        $this->MaintainVariable('NegativeNow', 'Negativer Börsenpreis jetzt', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
-        $this->MaintainVariable('NextNegativeStart', 'Nächste negative Viertelstunde', VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
-        $this->MaintainVariable('TomorrowAvailable', 'Preise für morgen veröffentlicht', VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 4, true);
+        $this->MaintainVariable('CurrentPrice', $this->t('Exchange price now'), VARIABLETYPE_FLOAT, 'SPOT.CentKWh', 1, true);
+        $this->MaintainVariable('NegativeNow', $this->t('Negative exchange price now'), VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
+        $this->MaintainVariable('NextNegativeStart', $this->t('Next negative quarter hour'), VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
+        $this->MaintainVariable('TomorrowAvailable', $this->t('Prices for tomorrow published'), VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 4, true);
         // Format wie Symcons Modul „Strompreis“ (Ident MarketData) — der Energie Manager wählt
         // diese Variable im Feld „Energiepreise“.
-        $this->MaintainVariable('MarketData', 'Marktdaten (Energie Manager)', VARIABLETYPE_STRING, '~TextBox', 5, true);
+        $this->MaintainVariable('MarketData', $this->t('Market data (Energy Manager)'), VARIABLETYPE_STRING, '~TextBox', 5, true);
         $this->ensureArchiving();
 
         // Quelle oder Gebotszone gewechselt: alte Preise gehören nicht mehr zur
@@ -343,12 +349,12 @@ class Boersenpreis extends IPSModule
         $this->UpdateFormField('EntsoeTokenInput', 'value', '');
         $this->UpdateFormField('EntsoeTokenStatus', 'caption', $this->entsoeTokenStatus());
         if ($Token === '') {
-            return '🗑 ENTSO-E-Zugangsschlüssel gelöscht.';
+            return $this->t('🗑 ENTSO-E access key deleted.');
         }
         if ($this->source() !== self::SOURCE_ENTSOE) {
-            return '✅ Zugangsschlüssel gespeichert. Er wird genutzt, sobald die Quelle „EPEX Spot (über ENTSO-E)“ gewählt und übernommen ist.';
+            return $this->t('✅ Access key saved. It is used as soon as the source "EPEX Spot (via ENTSO-E)" is selected and applied.');
         }
-        return "✅ Zugangsschlüssel gespeichert.\n" . $this->refresh(true);
+        return $this->t('✅ Access key saved.') . "\n" . $this->refresh(true);
     }
 
     /** Formular: Felder für den ENTSO-E-Schlüssel nur bei dieser Quelle zeigen (ändert nichts Gespeichertes). */
@@ -383,7 +389,7 @@ class Boersenpreis extends IPSModule
         $text = '';
         $blocked = $this->ReadAttributeInteger('BlockedUntil');
         if ($blocked > $now) {
-            $text = '⏳ Die Quelle hat um eine Pause gebeten (Ratenlimit) — nächster Abruf frühestens ' . date('H:i:s', $blocked) . ' Uhr. Vorhandene Preise bleiben gültig.';
+            $text = $this->t('⏳ The source asked for a pause (rate limit) — next fetch at %s at the earliest. Existing prices remain valid.', date('H:i:s', $blocked));
         } elseif ($force || $this->needsFetch($now)) {
             $text = $this->fetch($now);
         }
@@ -391,7 +397,7 @@ class Boersenpreis extends IPSModule
         $this->scheduleFetch();
         $this->scheduleTick();
         if ($text === '') {
-            $text = '✅ ' . $this->cacheSummary() . ' Kein Abruf nötig.';
+            $text = '✅ ' . $this->cacheSummary() . ' ' . $this->t('No fetch needed.');
         }
         $this->UpdateFormField('FetchStatus', 'caption', $this->fetchStatusLine());
         $this->UpdateFormField('PriceSummary', 'caption', $this->priceSummary());
@@ -447,17 +453,17 @@ class Boersenpreis extends IPSModule
             $sourceName = 'Tibber';
             $plz = $this->postalCode();
             if ($zone !== 'DE-LU') {
-                return $this->fail('Die Tibber-Preisübersicht gibt es nur für Deutschland (Gebotszone DE-LU).');
+                return $this->fail($this->t('The Tibber price overview is available for Germany only (bidding zone DE-LU).'));
             }
             if (!preg_match('/^\d{5}$/', $plz)) {
-                return $this->fail('Für die Tibber-Preisübersicht fehlt eine gültige Postleitzahl (5 Ziffern, Panel „Datenquelle“).');
+                return $this->fail($this->t('The Tibber price overview needs a valid postal code (5 digits, panel "Data source").'));
             }
             $url = self::TIBBER_URL . $plz;
         } elseif ($source === self::SOURCE_ENTSOE) {
             $sourceName = 'ENTSO-E';
             $token = trim((string)$this->ReadAttributeString('EntsoeToken'));
             if ($token === '') {
-                return $this->fail('Für „EPEX Spot (über ENTSO-E)“ ist noch kein Zugangsschlüssel hinterlegt (Panel „Datenquelle“).');
+                return $this->fail($this->t('No access key stored yet for "EPEX Spot (via ENTSO-E)" (panel "Data source").'));
             }
             // ENTSO-E erwartet UTC im Format JJJJMMTTHHMM; heute 00:00 bis übermorgen 00:00 Ortszeit.
             $url = self::ENTSOE_URL . '?securityToken=' . rawurlencode($token) . '&documentType=A44'
@@ -480,20 +486,28 @@ class Boersenpreis extends IPSModule
         if ($status === 429) {
             $wait = $this->retryAfterSeconds($r['headers']['retry-after'] ?? '', $now);
             $this->WriteAttributeInteger('BlockedUntil', $now + $wait);
-            return $this->fail($sourceName . ' meldet ein Ratenlimit (HTTP 429) — Pause bis ' . date('H:i:s', $now + $wait) . ' Uhr.');
+            return $this->fail($this->t('%s reports a rate limit (HTTP 429) — pausing until %s.', $sourceName, date('H:i:s', $now + $wait)));
         }
         // ENTSO-E beantwortet „keine Daten“ mit HTTP 400 und einem Quittungs-XML samt Grund.
         if ($source === self::SOURCE_ENTSOE && ($status === 200 || $status === 400)) {
             $parsed = $this->parseEntsoe((string)$r['body']);
         } elseif ($status !== 200) {
-            $why = $status === 0 ? 'nicht erreichbar' . ($r['error'] !== '' ? ' (' . $r['error'] . ')' : '')
-                : ($status === 404 ? 'hat für diesen Zeitraum keine Daten (HTTP 404)'
-                : ($status === 401 ? 'lehnt den Zugangsschlüssel ab (HTTP 401) — bitte Schlüssel prüfen' : 'antwortet mit HTTP ' . $status));
+            if ($status === 0) {
+                $why = $r['error'] !== ''
+                    ? $this->t('not reachable (%s)', $r['error'])
+                    : $this->t('not reachable');
+            } elseif ($status === 404) {
+                $why = $this->t('has no data for this period (HTTP 404)');
+            } elseif ($status === 401) {
+                $why = $this->t('rejects the access key (HTTP 401) — please check the key');
+            } else {
+                $why = $this->t('answers with HTTP %s', $status);
+            }
             return $this->fail($sourceName . ' ' . $why . '.');
         } else {
             $data = json_decode((string)$r['body'], true);
             if (!is_array($data)) {
-                return $this->fail($sourceName . ' lieferte keine lesbaren Daten (kein JSON).');
+                return $this->fail($this->t('%s returned no readable data (not JSON).', $sourceName));
             }
             $parsed = $source === self::SOURCE_AWATTAR ? $this->parseAwattar($data)
                 : ($source === self::SOURCE_TIBBER ? $this->parseTibber($data) : $this->parseEnergyCharts($data));
@@ -505,7 +519,7 @@ class Boersenpreis extends IPSModule
             return $s['end'] > $todayStart;
         }));
         if (count($slots) === 0) {
-            return $this->fail($sourceName . ' lieferte keine Preise für heute oder morgen.');
+            return $this->fail($this->t('%s returned no prices for today or tomorrow.', $sourceName));
         }
 
         $this->WriteAttributeString('PriceCache', json_encode([
@@ -523,8 +537,7 @@ class Boersenpreis extends IPSModule
         $text = '✅ ' . $this->cacheSummary();
         if (!$this->hasDay($now, 1)) {
             $publish = $this->publishTs($now, 0);
-            $text .= "\nℹ️ Morgen ist noch nicht veröffentlicht (Day-Ahead-Auktion 12 Uhr, Ergebnisse ab ca. 12:45 Uhr) — nächster Versuch "
-                . date('H:i', $now < $publish ? $publish : $now + self::RETRY_SECONDS) . ' Uhr.';
+            $text .= "\n" . $this->t('ℹ️ Tomorrow is not published yet (day-ahead auction at 12:00, results from about 12:45) — next attempt at %s.', date('H:i', $now < $publish ? $publish : $now + self::RETRY_SECONDS));
         }
         return $text;
     }
@@ -536,14 +549,16 @@ class Boersenpreis extends IPSModule
      */
     private function fail(string $message): string
     {
-        $this->WriteAttributeString('LastError', date('d.m.Y H:i', $this->now()) . ' Uhr: ' . $message);
+        $this->WriteAttributeString('LastError', $this->t('at %s: %s', date('d.m.Y H:i', $this->now()), $message));
         if ($this->ReadAttributeString('LoggedError') !== $message) {
             $this->LogMessage('Abruf fehlgeschlagen: ' . $message, KL_WARNING);
             $this->WriteAttributeString('LoggedError', $message);
         }
         $this->SendDebug('Abruf', 'Fehler: ' . $message, 0);
-        $keep = count($this->cache()['slots'] ?? []) > 0 ? ' Vorhandene Preise bleiben gültig.' : ' Noch keine Preise vorhanden.';
-        return '⚠️ Abruf fehlgeschlagen: ' . $message . $keep;
+        $keep = count($this->cache()['slots'] ?? []) > 0
+            ? $this->t('Existing prices remain valid.')
+            : $this->t('No prices available yet.');
+        return $this->t('⚠️ Fetch failed: %s %s', $message, $keep);
     }
 
     private function retryAfterSeconds(string $header, int $now): int
@@ -580,7 +595,7 @@ class Boersenpreis extends IPSModule
         $raw = function_exists('http_get_last_response_headers') ? (http_get_last_response_headers() ?? []) : ($http_response_header ?? []);
         if ($body === false && count($raw) === 0) {
             $err = error_get_last();
-            return ['status' => 0, 'headers' => [], 'body' => '', 'error' => (string)($err['message'] ?? 'keine Antwort')];
+            return ['status' => 0, 'headers' => [], 'body' => '', 'error' => (string)($err['message'] ?? $this->t('no answer'))];
         }
         [$status, $headers] = $this->parseResponseHeaders($raw);
         return ['status' => $status, 'headers' => $headers, 'body' => (string)$body, 'error' => ''];
@@ -618,11 +633,11 @@ class Boersenpreis extends IPSModule
         $ts = $d['unix_seconds'] ?? null;
         $pr = $d['price'] ?? null;
         if (!is_array($ts) || !is_array($pr) || count($ts) !== count($pr)) {
-            return ['slots' => [], 'license' => '', 'error' => 'unerwartetes Antwortformat (unix_seconds/price fehlen oder sind ungleich lang).'];
+            return ['slots' => [], 'license' => '', 'error' => $this->t('unexpected response format (unix_seconds/price missing or of different length).')];
         }
         $unit = strtolower(str_replace(' ', '', (string)($d['unit'] ?? '')));
         if ($unit !== '' && $unit !== 'eur/mwh') {
-            return ['slots' => [], 'license' => '', 'error' => 'unerwartete Einheit „' . $d['unit'] . '" (erwartet EUR/MWh).'];
+            return ['slots' => [], 'license' => '', 'error' => $this->t('unexpected unit "%s" (EUR/MWh expected).', $d['unit'])];
         }
         $res = $this->resolutionOf($ts);
         $slots = [];
@@ -648,7 +663,7 @@ class Boersenpreis extends IPSModule
     {
         $rows = $d['data'] ?? null;
         if (!is_array($rows)) {
-            return ['slots' => [], 'license' => '', 'error' => 'unerwartetes Antwortformat (data fehlt).'];
+            return ['slots' => [], 'license' => '', 'error' => $this->t('unexpected response format (data missing).')];
         }
         $slots = [];
         foreach ($rows as $row) {
@@ -657,7 +672,7 @@ class Boersenpreis extends IPSModule
             }
             $unit = strtolower(str_replace(' ', '', (string)($row['unit'] ?? 'Eur/MWh')));
             if ($unit !== 'eur/mwh') {
-                return ['slots' => [], 'license' => '', 'error' => 'unerwartete Einheit „' . $row['unit'] . '" (erwartet Eur/MWh).'];
+                return ['slots' => [], 'license' => '', 'error' => $this->t('unexpected unit "%s" (Eur/MWh expected).', $row['unit'])];
             }
             $s = intdiv((int)$row['start_timestamp'], 1000);
             $e = intdiv((int)$row['end_timestamp'], 1000);
@@ -732,7 +747,7 @@ class Boersenpreis extends IPSModule
             }
         }
         if (count($slots) === 0) {
-            return ['slots' => [], 'license' => '', 'error' => 'lieferte keine Preise (Postleitzahl bekannt?).'];
+            return ['slots' => [], 'license' => '', 'error' => $this->t('returned no prices (is the postal code known?).')];
         }
         ksort($slots);
         return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
@@ -756,20 +771,21 @@ class Boersenpreis extends IPSModule
         libxml_clear_errors();
         libxml_use_internal_errors($prev);
         if ($xml === false) {
-            return $err('keine lesbaren Daten (kein XML).');
+            return $err($this->t('no readable data (not XML).'));
         }
         if ($xml->getName() === 'Acknowledgement_MarketDocument') {
             $reason = trim((string)($xml->xpath('//*[local-name()="Reason"]/*[local-name()="text"]')[0] ?? ''));
-            return $err(stripos($reason, 'No matching data') !== false
-                ? 'hat für diesen Zeitraum noch keine Daten.'
-                : 'meldet: ' . ($reason !== '' ? mb_substr($reason, 0, 200) : 'Anfrage abgelehnt') . '.');
+            if (stripos($reason, 'No matching data') !== false) {
+                return $err($this->t('has no data for this period yet.'));
+            }
+            return $err($this->t('reports: %s.', $reason !== '' ? mb_substr($reason, 0, 200) : $this->t('request rejected')));
         }
         $chosen = [];
         foreach ($xml->xpath('//*[local-name()="TimeSeries"]') ?: [] as $ts) {
             $currency = strtoupper((string)($ts->xpath('./*[local-name()="currency_Unit.name"]')[0] ?? ''));
             $unit = strtoupper((string)($ts->xpath('./*[local-name()="price_Measure_Unit.name"]')[0] ?? ''));
             if ($currency !== 'EUR' || $unit !== 'MWH') {
-                return $err('unerwartete Einheit „' . $currency . '/' . $unit . '“ (erwartet EUR/MWH).');
+                return $err($this->t('unexpected unit "%s/%s" (EUR/MWH expected).', $currency, $unit));
             }
             $pos = (int)($ts->xpath('./*[local-name()="classificationSequence_AttributeInstanceComponent.position"]')[0] ?? 0);
             foreach ($ts->xpath('./*[local-name()="Period"]') ?: [] as $period) {
@@ -788,7 +804,7 @@ class Boersenpreis extends IPSModule
             $resText = (string)($c['period']->xpath('./*[local-name()="resolution"]')[0] ?? '');
             $res = ['PT15M' => 900, 'PT30M' => 1800, 'PT60M' => 3600][$resText] ?? 0;
             if ($res === 0) {
-                return $err('unerwartete Auflösung „' . $resText . '“.');
+                return $err($this->t('unexpected resolution "%s".', $resText));
             }
             $byPos = [];
             foreach ($c['period']->xpath('./*[local-name()="Point"]') ?: [] as $pt) {
@@ -814,7 +830,7 @@ class Boersenpreis extends IPSModule
             }
         }
         if (count($slots) === 0) {
-            return $err('lieferte keine Preise (keine TimeSeries).');
+            return $err($this->t('returned no prices (no TimeSeries).'));
         }
         ksort($slots);
         return ['slots' => array_values($slots), 'license' => '', 'error' => ''];
@@ -1065,17 +1081,17 @@ class Boersenpreis extends IPSModule
         try {
             $curve = TIBBERGR_GetPriceCurve($info['id']);
         } catch (Throwable $e) {
-            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') antwortet nicht: ' . $e->getMessage();
+            $info['problem'] = $this->t('Tibber Grid Rewards (#%s) does not answer: %s', $info['id'], $e->getMessage());
             return $info;
         }
         if (!is_array($curve) || count($curve) === 0) {
-            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') liefert gerade keine Preise.';
+            $info['problem'] = $this->t('Tibber Grid Rewards (#%s) currently returns no prices.', $info['id']);
             return $info;
         }
         $version = (string)($curve[0]['contractVersion'] ?? '1.0');
         $info['version'] = $version;
         if ((int)explode('.', $version)[0] !== 1) {
-            $info['problem'] = 'Dieses Modul benötigt eine Aktualisierung, um Tibber Grid Rewards zu nutzen (Vertrag 1.x erwartet, ' . $version . ' geliefert).';
+            $info['problem'] = $this->t('This module needs an update to use Tibber Grid Rewards (contract 1.x expected, %s delivered).', $version);
             return $info;
         }
         foreach ($curve as $c) {
@@ -1086,7 +1102,7 @@ class Boersenpreis extends IPSModule
             $info['curve'][] = [(int)$c['start'], (int)$c['end'], (float)$c['price']];
         }
         if (count($info['curve']) === 0) {
-            $info['problem'] = 'Tibber Grid Rewards (#' . $info['id'] . ') liefert keinen Endkundenpreis (basis „endkunde“).';
+            $info['problem'] = $this->t('Tibber Grid Rewards (#%s) returns no retail price (basis "endkunde").', $info['id']);
             return $info;
         }
         $info['state'] = 'ok';
@@ -1171,26 +1187,30 @@ class Boersenpreis extends IPSModule
         $info = $info ?? $this->tibberGridRewardsInfo();
         $tariff = $tariff ?? (bool)$this->ReadPropertyBoolean('TariffEnabled');
         $source = $source ?? $this->source();
-        $own = $tariff ? '🧾 Preis aus deinem eigenen Tarif (Börsenpreis + Aufschlag + Netzentgelt + Steuern und Abgaben, inkl. 19 % MwSt).'
-            : ($source === self::SOURCE_TIBBER ? '🏷 Endpreis aus der Tibber-Preisübersicht für PLZ ' . $this->postalCode() . ' (inkl. MwSt).'
-            : 'ℹ️ Reiner Börsenpreis (netto) — für einen echten Endpreis unten den eigenen Tarif einschalten.');
+        if ($tariff) {
+            $own = $this->t('🧾 Price from your own tariff (exchange price + supplier surcharge + grid fee + taxes and levies, incl. 19 % VAT).');
+        } elseif ($source === self::SOURCE_TIBBER) {
+            $own = $this->t('🏷 Retail price from the Tibber price overview for postal code %s (incl. VAT).', $this->postalCode());
+        } else {
+            $own = $this->t('ℹ️ Plain exchange price (net) — for a real retail price switch on your own tariff below.');
+        }
         switch ($info['state']) {
             case 'ok':
                 $now = $this->tibberPriceAt($info['curve'], $this->now());
                 $until = max(array_map(fn($c) => $c[1], $info['curve']));
-                return '✅ Preis aus Tibber Grid Rewards (#' . $info['id'] . ' „' . IPS_GetName($info['id']) . '“, Vertrag ' . $info['version'] . ') übernommen: '
-                    . ($now !== null ? 'Endpreis jetzt ' . number_format($now, 2, ',', '.') . ' ct/kWh' : 'für jetzt noch kein Tibber-Preis')
-                    . ', Tibber-Preise bis ' . date('d.m.Y H:i', $until) . ' Uhr.'
-                    . "\nFür Viertelstunden ohne Tibber-Preis gilt: " . $own;
+                $jetzt = $now !== null
+                    ? $this->t('retail price now %s ct/kWh', $this->num($now, 2))
+                    : $this->t('no Tibber price for right now');
+                return $this->t('✅ Price taken from Tibber Grid Rewards (#%s "%s", contract %s): %s, Tibber prices until %s.', $info['id'], IPS_GetName($info['id']), $info['version'], $jetzt, $this->dt($until))
+                    . "\n" . $this->t('For quarter hours without a Tibber price: %s', $own);
             case 'ambiguous':
-                return '⚠️ Mehrere Instanzen von Tibber Grid Rewards gefunden (#' . implode(', #', $info['list']) . ') — bitte unten „Tibber-Instanz“ wählen, bis dahin wird keine genutzt.'
-                    . "\n" . $own;
+                return $this->t('⚠️ Several instances of Tibber Grid Rewards found (#%s) — please pick one under "Tibber instance" below; until then none is used.', implode(', #', $info['list'])) . "\n" . $own;
             case 'problem':
                 return '⚠️ ' . $info['problem'] . "\n" . $own;
             case 'missing':
-                return 'ℹ️ Tibber Grid Rewards nicht gefunden — es gilt:' . "\n" . $own;
+                return $this->t('ℹ️ Tibber Grid Rewards not found — this applies:') . "\n" . $own;
             default:
-                return 'ℹ️ Tibber Grid Rewards abgewählt — es gilt:' . "\n" . $own;
+                return $this->t('ℹ️ Tibber Grid Rewards switched off — this applies:') . "\n" . $own;
         }
     }
 
@@ -1201,9 +1221,10 @@ class Boersenpreis extends IPSModule
             return '';
         }
         $now = $this->tibberPriceAt($info['curve'], $this->now());
-        return '🔗 Endpreis: ' . ($now !== null ? number_format($now, 2, ',', '.') . ' ct/kWh jetzt' : 'ab der nächsten Tibber-Viertelstunde')
-            . ' (automatisch von Tibber Grid Rewards #' . $info['id'] . '). Die Tarif-Felder werden dafür nicht gebraucht und sind ausgeblendet.'
-            . ' Wer stattdessen den eigenen Tarif rechnen will: „Preis von Tibber Grid Rewards nutzen“ abschalten.';
+        $wert = $now !== null
+            ? $this->t('%s ct/kWh now', $this->num($now, 2))
+            : $this->t('from the next Tibber quarter hour on');
+        return $this->t('🔗 Retail price: %s (automatically from Tibber Grid Rewards #%s). The tariff fields are not needed for this and are hidden. To calculate your own tariff instead, switch off "Use price from Tibber Grid Rewards".', $wert, $info['id']);
     }
 
     /**
@@ -1233,22 +1254,67 @@ class Boersenpreis extends IPSModule
         $arch = $this->archiveID();
         $vid = IPS_GetObjectIDByIdent('CurrentPrice', $this->InstanceID);
         if (!function_exists('AC_GetLoggingStatus') || $arch <= 0 || $vid === false) {
-            return 'ℹ️ Kein Archiv gefunden — ohne Archiv gibt es keinen Rückblick auf vergangene Tage.';
+            return $this->t('ℹ️ No archive found — without an archive there is no look back at past days.');
         }
         if (AC_GetLoggingStatus($arch, (int)$vid)) {
-            return '✅ „Börsenpreis jetzt“ wird archiviert — daraus kommt der Rückblick auf vergangene Tage'
-                . ' (SPOT_GetPriceHistory, Diagramm im NRG-Stack Dashboard). Das Modul schaltet die Archivierung nie selbst ab.';
+            return $this->t('✅ "Exchange price now" is being archived — that is where the look back at past days comes from (SPOT_GetPriceHistory, chart in the NRG-Stack dashboard). The module never switches archiving off by itself.');
         }
-        return 'ℹ️ „Börsenpreis jetzt“ wird nicht archiviert. Ohne Archiv zeigt der Vertrag nur heute und morgen,'
-            . ' kein vergangener Tag. Haken setzen und „Übernehmen“ klicken, dann schaltet das Modul die Archivierung einmalig ein.';
+        return $this->t('ℹ️ "Exchange price now" is not being archived. Without an archive the contract only returns today and tomorrow, no past day. Tick the box and click "Apply", then the module switches archiving on once.');
     }
 
     private function entsoeTokenStatus(): string
     {
         $t = trim((string)$this->ReadAttributeString('EntsoeToken'));
         return $t === ''
-            ? 'ℹ️ Noch kein ENTSO-E-Zugangsschlüssel hinterlegt.'
-            : '✅ ENTSO-E-Zugangsschlüssel hinterlegt (endet auf …' . mb_substr($t, -4) . ').';
+            ? $this->t('ℹ️ No ENTSO-E access key stored yet.')
+            : $this->t('✅ ENTSO-E access key stored (ending in …%s).', mb_substr($t, -4));
+    }
+
+    /**
+     * Nutzersichtbaren Text übersetzen (Quelltext englisch, Übersetzung in locale.json —
+     * SUITE.md Konvention 9). Weitere Argumente werden wie bei sprintf eingesetzt (%s), damit
+     * zusammengesetzte Sätze in der Übersetzung umgestellt werden können.
+     */
+    private function t(string $text, ...$args): string
+    {
+        $out = $this->Translate($text);
+        if ($args === []) {
+            return $out;
+        }
+        $formatted = @vsprintf($out, array_map(fn($a) => is_scalar($a) || $a === null ? (string)$a : (string)json_encode($a), $args));
+        return $formatted === false ? $out : $formatted;
+    }
+
+    /** Läuft die Oberfläche auf Deutsch? (Einmal fragen statt Zahl/Datum je Text neu zu prüfen.) */
+    private function german(): bool
+    {
+        // Einmal je Durchlauf fragen (Stolperstein 24: nicht hunderte Translate()-Aufrufe je Lauf).
+        if ($this->istDeutsch === null) {
+            $this->istDeutsch = $this->t('Yes') === 'Ja';
+        }
+        return $this->istDeutsch;
+    }
+
+    /** Zahl in der Sprache des Nutzers: 1.234,56 (de) bzw. 1,234.56 (en). */
+    private function num(float $value, int $digits): string
+    {
+        return $this->german() ? number_format($value, $digits, ',', '.') : number_format($value, $digits, '.', ',');
+    }
+
+    /** Datum/Uhrzeit in der Sprache des Nutzers (de: TT.MM.JJJJ HH:MM, en: YYYY-MM-DD HH:MM). */
+    private function dt(int $ts, string $what = 'datetime'): string
+    {
+        $date = $this->german() ? 'd.m.Y' : 'Y-m-d';
+        if ($what === 'date') {
+            return date($date, $ts);
+        }
+        if ($what === 'time') {
+            return date('H:i', $ts);
+        }
+        if ($what === 'timesec') {
+            return date('H:i:s', $ts);
+        }
+        return date($date . ' H:i', $ts);
     }
 
     private function setIfChanged(string $ident, $value): void
@@ -1267,8 +1333,8 @@ class Boersenpreis extends IPSModule
         }
         if (!IPS_VariableProfileExists('SPOT.YesNo')) {
             IPS_CreateVariableProfile('SPOT.YesNo', VARIABLETYPE_BOOLEAN);
-            IPS_SetVariableProfileAssociation('SPOT.YesNo', 0, 'Nein', '', -1);
-            IPS_SetVariableProfileAssociation('SPOT.YesNo', 1, 'Ja', '', -1);
+            IPS_SetVariableProfileAssociation('SPOT.YesNo', 0, $this->t('No'), '', -1);
+            IPS_SetVariableProfileAssociation('SPOT.YesNo', 1, $this->t('Yes'), '', -1);
         }
     }
 
@@ -1344,7 +1410,7 @@ class Boersenpreis extends IPSModule
         $tomorrow = count($this->daySlots($now, 1));
         $cache = $this->cache();
         if ($today + $tomorrow === 0) {
-            return 'Noch keine Preise vorhanden.';
+            return $this->t('No prices available yet.');
         }
         $neg = 0;
         foreach (array_merge($this->daySlots($now, 0), $this->daySlots($now, 1)) as $s) {
@@ -1352,13 +1418,18 @@ class Boersenpreis extends IPSModule
                 $neg++;
             }
         }
-        return ($today + $tomorrow) . ' Viertelstunden (' . ($tomorrow > 0 ? 'heute + morgen' : 'nur heute') . ') von '
-            . $this->sourceName((int)($cache['source'] ?? $this->source())) . ', ' . ($neg === 0 ? 'keine negativ.' : 'davon ' . $neg . ' negativ.');
+        $span = $tomorrow > 0
+            ? $this->t('today + tomorrow')
+            : $this->t('today only');
+        $negText = $neg === 0
+            ? $this->t('none negative.')
+            : $this->t('%s of them negative.', $neg);
+        return $this->t('%s quarter hours (%s) from %s, %s', $today + $tomorrow, $span, $this->sourceName((int)($cache['source'] ?? $this->source())), $negText);
     }
 
     private function fmtCt(float $v): string
     {
-        return number_format($v, 2, ',', '.') . ' ct/kWh';
+        return $this->num($v, 2) . ' ct/kWh';
     }
 
     // -----------------------------------------------------------------
@@ -1377,7 +1448,7 @@ class Boersenpreis extends IPSModule
     {
         $this->WriteAttributeBoolean('PurposeIntroGone', false);
         $this->UpdateFormField('PurposeIntroPanel', 'visible', true);
-        return '👋 „Wozu dieses Modul?“ steht wieder ganz oben im Formular.';
+        return $this->t('👋 "What is this module for?" is back at the top of the form.');
     }
 
     public function AckNews(): void
@@ -1493,17 +1564,17 @@ class Boersenpreis extends IPSModule
         $error = $this->ReadAttributeString('LastError');
         $blocked = $this->ReadAttributeInteger('BlockedUntil');
         if ($lastTry === 0) {
-            $line = 'ℹ️ Noch kein Abruf.';
+            $line = $this->t('ℹ️ No fetch yet.');
         } elseif ($error !== '') {
             $line = '⚠️ ' . $error;
         } else {
-            $line = '✅ Zuletzt abgerufen ' . date('d.m.Y H:i:s', (int)($cache['fetchedAt'] ?? $lastTry)) . ' Uhr — ' . $this->cacheSummary();
+            $line = $this->t('✅ Last fetched %s — %s', $this->dt((int)($cache['fetchedAt'] ?? $lastTry)) . date(':s', (int)($cache['fetchedAt'] ?? $lastTry)), $this->cacheSummary());
         }
         if ($blocked > $now) {
-            $line .= "\n⏳ Ratenlimit der Quelle: nächster Abruf frühestens " . date('H:i:s', $blocked) . ' Uhr.';
+            $line .= "\n" . $this->t('⏳ Rate limit of the source: next fetch at %s at the earliest.', date('H:i:s', $blocked));
         } elseif ($this->hasDay($now, 0) && !$this->hasDay($now, 1)) {
             $publish = $this->publishTs($now, 0);
-            $line .= "\nℹ️ Preise für morgen noch nicht veröffentlicht — nächster Versuch " . date('H:i', $now < $publish ? $publish : max($now, $lastTry) + self::RETRY_SECONDS) . ' Uhr.';
+            $line .= "\n" . $this->t('ℹ️ Tomorrow\'s prices are not published yet — next attempt at %s.', date('H:i', $now < $publish ? $publish : max($now, $lastTry) + self::RETRY_SECONDS));
         }
         return $line;
     }
@@ -1513,28 +1584,29 @@ class Boersenpreis extends IPSModule
     {
         $now = $this->now();
         $lines = [];
-        foreach ([0 => 'Heute', 1 => 'Morgen'] as $offset => $label) {
+        foreach ([0 => $this->t('Today'), 1 => $this->t('Tomorrow')] as $offset => $label) {
             $slots = $this->daySlots($now, $offset);
             if (count($slots) === 0) {
-                $lines[] = $label . ': ' . ($offset === 1 ? 'noch nicht veröffentlicht.' : 'keine Preise vorhanden.');
+                $lines[] = $label . ': ' . ($offset === 1
+                    ? $this->t('not published yet.')
+                    : $this->t('no prices available.'));
                 continue;
             }
             $prices = array_column($slots, 'price');
             $neg = array_values(array_filter($slots, function ($s) {
                 return $s['price'] < 0;
             }));
-            $line = $label . ': ' . count($slots) . ' Viertelstunden, ' . $this->fmtCt(min($prices)) . ' bis ' . $this->fmtCt(max($prices))
-                . ', Mittel ' . $this->fmtCt(array_sum($prices) / count($prices)) . '.';
+            $line = $label . ': ' . $this->t('%s quarter hours, %s to %s, average %s.', count($slots), $this->fmtCt(min($prices)), $this->fmtCt(max($prices)), $this->fmtCt(array_sum($prices) / count($prices)));
             if (count($neg) > 0) {
-                $line .= ' ⚡ ' . count($neg) . ' negative Viertelstunde(n), erste ' . date('H:i', (int)$neg[0]['start']) . ' Uhr, letzte endet ' . date('H:i', (int)end($neg)['end']) . ' Uhr.';
+                $line .= ' ' . $this->t('⚡ %s negative quarter hour(s), first at %s, last ends %s.', count($neg), date('H:i', (int)$neg[0]['start']), date('H:i', (int)end($neg)['end']));
             } else {
-                $line .= ' Keine negativen Preise.';
+                $line .= ' ' . $this->t('No negative prices.');
             }
             $lines[] = $line;
         }
         $res = $this->cache()['slots'][0]['res'] ?? 900;
         if ((int)$res === 3600) {
-            $lines[] = 'ℹ️ Die Quelle liefert Stundenwerte — jede Stunde ist auf vier gleiche Viertelstunden verteilt.';
+            $lines[] = $this->t('ℹ️ The source returns hourly values — each hour is spread over four equal quarter hours.');
         }
         return implode("\n", $lines);
     }
@@ -1542,20 +1614,17 @@ class Boersenpreis extends IPSModule
     private function sourceInfo(): string
     {
         if ($this->source() === self::SOURCE_TIBBER) {
-            return 'Tibber-Preisübersicht (öffentlich, ohne Tibber-Konto): Für deine Postleitzahl nennt Tibber je Viertelstunde den Börsenpreis, das Netzentgelt und die Abgaben. Alle Werte und der Verbund-Vertrag nutzen den Börsenpreisanteil; die Variable „Marktdaten (Energie Manager)“ bekommt Tibbers Endpreis inkl. Mehrwertsteuer — so wie in Symcons Modul „Strompreis“. '
-                . 'Die Postleitzahl wird dabei an Tibber übertragen. Keine offiziell dokumentierte Schnittstelle, sie kann sich ändern. Der Endpreis gilt für einen Tibber-Standardkunden an dieser Postleitzahl — ob dein Tarif oder zeitvariable Netzentgelte (§ 14a Modul 3) davon abweichen, weiß nur dein Vertrag.';
+            return $this->t('Tibber price overview (public, no Tibber account): for your postal code Tibber gives the exchange price, the grid fee and the levies per quarter hour. All values and the federation contract use the exchange price part; the variable "Market data (Energy Manager)" gets Tibber\'s retail price incl. VAT — just like in Symcon\'s "Strompreis" module. Your postal code is sent to Tibber. This is not an officially documented interface and may change. The retail price applies to a standard Tibber customer at this postal code — whether your own tariff or time-variable grid fees (§ 14a module 3) differ is something only your contract knows.');
         }
         if ($this->source() === self::SOURCE_ENTSOE) {
-            return 'EPEX Spot über ENTSO-E: die Day-Ahead-Ergebnisse der Strombörse EPEX Spot, veröffentlicht auf der ENTSO-E Transparency Platform — Viertelstunden, kostenlos, aber mit eigenem Zugangsschlüssel (Konto auf transparency.entsoe.eu anlegen, dann per E-Mail an transparency@entsoe.eu mit Betreff „Restful API access“ beantragen). '
-                . 'Quellennennung: ENTSO-E Transparency Platform. Direkt bei EPEX Spot gibt es die Daten nur mit kostenpflichtigem Vertrag.';
+            return $this->t('EPEX Spot via ENTSO-E: the day-ahead results of the EPEX Spot power exchange, published on the ENTSO-E Transparency Platform — quarter hours, free of charge, but with your own access key (create an account at transparency.entsoe.eu, then request the key by e-mail to transparency@entsoe.eu with the subject "Restful API access"). Attribution: ENTSO-E Transparency Platform. Directly from EPEX Spot the data is only available with a paid contract.');
         }
         if ($this->source() === self::SOURCE_AWATTAR) {
-            return 'aWATTar: kostenlos im Rahmen fairer Nutzung (laut Anbieter etwa 100 Abfragen am Tag — dieses Modul braucht meist 1–5). '
-                . 'Liefert nur Stundenwerte: eine einzelne negative Viertelstunde kann im Stundenmittel verschwinden. Für die Viertelstunden-Pflichten (§ 51 EEG) ist Energy-Charts die bessere Wahl.';
+            return $this->t('aWATTar: free within fair use (about 100 requests per day according to the provider — this module usually needs 1–5). Returns hourly values only: a single negative quarter hour can disappear in the hourly average. For the quarter-hour rules (§ 51 EEG) Energy-Charts is the better choice.');
         }
         $license = (string)($this->cache()['license'] ?? '');
-        return 'Energy-Charts (Fraunhofer ISE): ohne Anmeldung, Viertelstunden. Die Quelle begrenzt die Abfragen pro Minute — das Modul fragt meist nur 1–5-mal am Tag und hält sich an jede Pause, um die die Quelle bittet. '
-            . 'Quellennennung: Energy-Charts.info' . ($license !== '' ? ' — ' . $license : ' — Lizenz CC BY 4.0, Daten Bundesnetzagentur | SMARD.de') . '.';
+        return $this->t('Energy-Charts (Fraunhofer ISE): no registration, quarter hours. The source limits requests per minute — this module usually asks only 1–5 times a day and respects every pause the source asks for. Attribution: Energy-Charts.info')
+            . ($license !== '' ? ' — ' . $license : ' — ' . $this->t('licence CC BY 4.0, data Bundesnetzagentur | SMARD.de')) . '.';
     }
 
     /**
@@ -1568,12 +1637,12 @@ class Boersenpreis extends IPSModule
         return [
             'type' => 'ExpansionPanel', 'name' => 'PurposeIntroPanel', 'expanded' => true,
             'visible' => !$this->ReadAttributeBoolean('PurposeIntroGone'),
-            'caption' => '👋  Wozu dieses Modul?',
+            'caption' => $this->t('👋  What is this module for?'),
             'items' => [
-                ['type' => 'Label', 'caption' => 'Dieses Modul holt die Day-Ahead-Börsenpreise für heute und morgen (Viertelstunden, Gebotszone Deutschland/Luxemburg oder Österreich) — ohne Konto, ohne Stromvertrag bei einem bestimmten Anbieter — und stellt sie Variablen, Skripten und anderen NRG-Stack-Modulen bereit.'],
-                ['type' => 'Label', 'caption' => 'Der Nutzen: Für manche Pflichten zählt der Börsenpreis, nicht dein Tarif. Beispiel: Neue PV-Anlagen bekommen in Viertelstunden mit negativem Börsenpreis keine Einspeisevergütung. Mit diesem Modul kann z. B. das NRG-Stack EMS genau diese Viertelstunden erkennen und die Einspeisung vermeiden — auch mit festem Stromtarif.'],
-                ['type' => 'Label', 'caption' => 'Auch ohne weitere NRG-Stack-Module nützlich: Symcons eigener Energie Manager bekommt von hier die Preise der nächsten 24 Stunden — als deinen Endpreis, wenn du deinen Tarif einträgst — und plant damit z. B. günstiges Laden. Wer einen dynamischen Tarif über das Modul NRG-Stack Tibber Grid Rewards hat, bekommt dort den eigenen Endkundenpreis; beides kann nebeneinander laufen.'],
-                ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckPurposeIntro($id);'],
+                ['type' => 'Label', 'caption' => $this->t('This module fetches the day-ahead exchange prices for today and tomorrow (quarter hours, bidding zone Germany/Luxembourg or Austria) — without an account and without a contract with a particular supplier — and provides them as variables, to scripts and to other NRG-Stack modules.')],
+                ['type' => 'Label', 'caption' => $this->t('The point: some rules depend on the exchange price, not on your tariff. For example, new PV systems receive no feed-in tariff during quarter hours with a negative exchange price. With this module the NRG-Stack EMS, for instance, can spot exactly those quarter hours and avoid feeding in — even with a fixed electricity tariff.')],
+                ['type' => 'Label', 'caption' => $this->t('Useful even without other NRG-Stack modules: Symcon\'s own Energy Manager gets the prices for the next 24 hours from here — as your retail price if you enter your tariff — and uses them to plan cheap charging, for example. With a dynamic tariff through the NRG-Stack Tibber Grid Rewards module you get your real retail price from there; both can run side by side.')],
+                ['type' => 'Button', 'caption' => $this->t('Understood – do not show again'), 'onClick' => 'SPOT_AckPurposeIntro($id);'],
             ],
         ];
     }
@@ -1595,16 +1664,16 @@ class Boersenpreis extends IPSModule
         $multi = count($pending) > 1;
         foreach ($pending as $ver => $lines) {
             if ($multi) {
-                $items[] = ['type' => 'Label', 'caption' => 'Version ' . $ver . ':'];
+                $items[] = ['type' => 'Label', 'caption' => $this->t('Version %s:', $ver)];
             }
             foreach ($lines as $line) {
-                $items[] = ['type' => 'Label', 'caption' => '• ' . $line];
+                $items[] = ['type' => 'Label', 'caption' => '• ' . $this->t($line)];
             }
         }
-        $items[] = ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckNews($id);'];
+        $items[] = ['type' => 'Button', 'caption' => $this->t('Understood – do not show again'), 'onClick' => 'SPOT_AckNews($id);'];
         return [
             'type' => 'ExpansionPanel', 'name' => 'NewsPanel', 'expanded' => true,
-            'caption' => '🆕  Neu bis Version ' . array_key_last($pending),
+            'caption' => $this->t('🆕  New up to version %s', array_key_last($pending)),
             'items' => $items,
         ];
     }
@@ -1619,23 +1688,23 @@ class Boersenpreis extends IPSModule
     {
         $lib    = @IPS_GetLibrary(self::LIBRARY_GUID);
         $verTxt = (is_array($lib) && isset($lib['Version']))
-            ? 'ℹ️ NRG-Stack Börsenpreis Version ' . $lib['Version'] . ' (Build ' . ($lib['Build'] ?? '?') . ')'
+            ? $this->t('ℹ️ NRG-Stack Börsenpreis version %s (build %s)', $lib['Version'], $lib['Build'] ?? '?')
             : 'ℹ️ NRG-Stack Börsenpreis';
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
-            'caption' => '📖  Dokumentation & Hilfe',
+            'caption' => $this->t('📖  Documentation & help'),
             'items' => [
                 ['type' => 'Label', 'caption' => $verTxt],
-                ['type' => 'Button', 'caption' => '👋 „Wozu dieses Modul?“ wieder anzeigen', 'onClick' => 'echo SPOT_ShowPurposeIntro($id);'],
-                ['type' => 'Label', 'caption' => 'Was geliefert wird: der Day-Ahead-Börsenpreis der gewählten Gebotszone je Viertelstunde, umgerechnet in ct/kWh, NETTO — ohne Steuern, Umlagen und Netzentgelt. Negative Preise werden genau so weitergegeben. Das ist nicht dein Endkundenpreis.'],
-                ['type' => 'Label', 'caption' => 'Wann abgerufen wird: nach dem Anlegen einmal sofort, danach nur, wenn etwas fehlt. Die Preise für morgen entstehen in der Day-Ahead-Auktion um 12 Uhr und stehen meist ab ca. 12:45 Uhr bereit; bis sie da sind, fragt das Modul alle 15 Minuten. Bittet die Quelle um eine Pause (Ratenlimit), wartet das Modul genau so lange.'],
-                ['type' => 'Label', 'caption' => 'Variablen: „Börsenpreis jetzt" (ct/kWh), „Negativer Börsenpreis jetzt" (Ja/Nein), „Nächste negative Viertelstunde" (Beginn, 0 = keine bekannt), „Preise für morgen veröffentlicht" (Ja/Nein), „Marktdaten (Energie Manager)“ (Preise der nächsten 24 Stunden für Symcons Energie Manager, siehe unten). Aktualisierung zu jeder Viertelstunde. „Börsenpreis jetzt" wird archiviert — das Modul schaltet das einmalig ein; wer es abschaltet, verliert nur den Rückblick in SPOT_GetPriceHistory().'],
-                ['type' => 'Label', 'caption' => 'Anzeige: Die Preiskurve für heute und morgen mit den negativen Viertelstunden zeigt das NRG-Stack Dashboard (PV-Monitoring, Reiter „Strompreis"). Die Variablen lassen sich zusätzlich per Verknüpfung im Objektbaum in den Bereich des WebFronts legen.'],
-                ['type' => 'Label', 'caption' => 'Symcon Energie Manager: „Marktdaten (Energie Manager)“ enthält [{start, end, price}] ab der laufenden Viertelstunde für bis zu 24 Stunden, price in ct/kWh — dasselbe Format wie Symcons Modul „Strompreis“, aber mit deinem Endpreis: echter Tibber-Preis aus Tibber Grid Rewards, sonst dein eigener Tarif, sonst Tibbers Preis für deine Postleitzahl (Quelle Tibber-Preisübersicht), sonst der reine Börsenpreis. Welcher gerade gilt, zeigt die Statuszeile im Panel „Symcon Energie Manager & Tarif“.'],
-                ['type' => 'Label', 'caption' => 'Skripte und andere Module: SPOT_GetPriceCurve(<InstanzID>) liefert eine Liste aller Viertelstunden von heute und (sobald veröffentlicht) morgen — je Eintrag start, end (exklusiv, Unixzeit), price (ct/kWh), basis „spot", netzentgelt „fehlt", level (immer leer), quelle, aufloesung (900 = Viertelstunde, 3600 = aus Stundenwert verteilt) und contractVersion. Lücken sind möglich, fehlende Werte stehen nie als 0 drin.'],
-                ['type' => 'Label', 'caption' => 'SPOT_GetPriceHistory(<InstanzID>, von, bis) liefert dieselben Einträge für einen beliebigen Zeitraum (Unixzeit, bis exklusiv, höchstens 400 Tage). Vergangene Viertelstunden stammen aus dem Archiv (quelle „archiv", Stufenverlauf: ein Wert gilt bis zum nächsten, höchstens 12 Stunden — längere Lücken, z. B. während Symcon aus war, bleiben leer); vor dem ersten Archiveintrag gibt es keine Einträge.'],
-                ['type' => 'Label', 'caption' => 'SPOT_Update(<InstanzID>) ruft sofort ab und liefert das Ergebnis als Text. Zeitumstellung: Tage mit 23 bzw. 25 Stunden haben 92 bzw. 100 Viertelstunden — alle Zeitstempel sind echte Unixzeit, nichts wird aus festen Tageslängen errechnet.'],
-                ['type' => 'Label', 'caption' => 'Keine Rechtsberatung: Welche Pflichten für deine Anlage bei negativen Preisen gelten, hängt u. a. vom Inbetriebnahmedatum ab. Das NRG-Stack EMS ordnet das über seine Anlagendaten ein; dieses Modul liefert nur die Preise.'],
+                ['type' => 'Button', 'caption' => $this->t('👋 Show "What is this module for?" again'), 'onClick' => 'echo SPOT_ShowPurposeIntro($id);'],
+                ['type' => 'Label', 'caption' => $this->t('What you get: the day-ahead exchange price of the chosen bidding zone per quarter hour, converted to ct/kWh, NET — without taxes, levies and grid fee. Negative prices are passed on exactly as they are. This is not your retail price.')],
+                ['type' => 'Label', 'caption' => $this->t('When it fetches: once right after creation, then only when something is missing. Tomorrow\'s prices are set in the day-ahead auction at 12:00 and are usually available from about 12:45; until then the module asks every 15 minutes. If the source asks for a pause (rate limit), the module waits exactly that long.')],
+                ['type' => 'Label', 'caption' => $this->t('Variables: "Exchange price now" (ct/kWh), "Negative exchange price now" (yes/no), "Next negative quarter hour" (start, 0 = none known), "Prices for tomorrow published" (yes/no), "Market data (Energy Manager)" (prices for the next 24 hours for Symcon\'s Energy Manager, see below). Updated every quarter hour. "Exchange price now" is archived if you tick the box in the panel "Exchange prices"; the module then switches it on once and never off again.')],
+                ['type' => 'Label', 'caption' => $this->t('Display: the price curve for today and tomorrow with the negative quarter hours is shown by the NRG-Stack dashboard (PV monitoring, tab "Strompreis"). The variables can also be linked into the WebFront area in the object tree.')],
+                ['type' => 'Label', 'caption' => $this->t('Symcon Energy Manager: "Market data (Energy Manager)" contains [{start, end, price}] from the current quarter hour for up to 24 hours, price in ct/kWh — the same format as Symcon\'s "Strompreis" module, but with your retail price: the real Tibber price from Tibber Grid Rewards, otherwise your own tariff, otherwise Tibber\'s price for your postal code (source: Tibber price overview), otherwise the plain exchange price. The status line in the panel "Symcon Energy Manager & tariff" shows which one currently applies.')],
+                ['type' => 'Label', 'caption' => $this->t('Scripts and other modules: SPOT_GetPriceCurve(<instance ID>) returns a list of all quarter hours of today and (once published) tomorrow — per entry start, end (exclusive, Unix time), price (ct/kWh), basis "spot", netzentgelt "fehlt", level (always empty), quelle, aufloesung (900 = quarter hour, 3600 = spread from an hourly value) and contractVersion. Gaps are possible; missing values are never returned as 0.')],
+                ['type' => 'Label', 'caption' => $this->t('SPOT_GetPriceHistory(<instance ID>, from, to) returns the same entries for any period (Unix time, "to" exclusive, at most 400 days). Past quarter hours come from the archive (quelle "archiv", step curve: a value applies until the next one, at most 12 hours — longer gaps, for example while Symcon was switched off, stay empty); before the first archive entry there are no entries.')],
+                ['type' => 'Label', 'caption' => $this->t('SPOT_Update(<instance ID>) fetches immediately and returns the result as text. Daylight saving: days with 23 or 25 hours have 92 or 100 quarter hours — all time stamps are real Unix time, nothing is derived from fixed day lengths.')],
+                ['type' => 'Label', 'caption' => $this->t('Not legal advice: which rules apply to your system during negative prices depends on the commissioning date, among other things. The NRG-Stack EMS classifies this from its plant data; this module only provides the prices.')],
             ],
         ];
     }
@@ -1646,38 +1715,38 @@ class Boersenpreis extends IPSModule
         $tibber = $this->source() === self::SOURCE_TIBBER;
         $zones = [];
         foreach (self::ZONES as $value => $caption) {
-            $zones[] = ['caption' => $caption, 'value' => $value];
+            $zones[] = ['caption' => $this->t($caption), 'value' => $value];
         }
         return [
             'type' => 'ExpansionPanel', 'expanded' => true,
-            'caption' => '🔌  Datenquelle',
+            'caption' => $this->t('🔌  Data source'),
             'items' => [
-                ['type' => 'Select', 'name' => 'Source', 'caption' => 'Quelle', 'width' => self::FIELD_WIDTH, 'onChange' => 'SPOT_UIChangeSource($id, $Source); SPOT_UIRefreshMarket($id, $UseTibberPrice, $TariffEnabled, $TibberInstance, $Source);', 'options' => [
-                    ['caption' => 'Energy-Charts (Fraunhofer ISE) — empfohlen', 'value' => self::SOURCE_ENERGYCHARTS],
-                    ['caption' => 'EPEX Spot über ENTSO-E — mit Zugangsschlüssel', 'value' => self::SOURCE_ENTSOE],
-                    ['caption' => 'Tibber-Preisübersicht — per Postleitzahl', 'value' => self::SOURCE_TIBBER],
-                    ['caption' => 'aWATTar — nur Stundenwerte', 'value' => self::SOURCE_AWATTAR],
+                ['type' => 'Select', 'name' => 'Source', 'caption' => $this->t('Source'), 'width' => self::FIELD_WIDTH, 'onChange' => 'SPOT_UIChangeSource($id, $Source); SPOT_UIRefreshMarket($id, $UseTibberPrice, $TariffEnabled, $TibberInstance, $Source);', 'options' => [
+                    ['caption' => $this->t('Energy-Charts (Fraunhofer ISE) — recommended'), 'value' => self::SOURCE_ENERGYCHARTS],
+                    ['caption' => $this->t('EPEX Spot via ENTSO-E — with access key'), 'value' => self::SOURCE_ENTSOE],
+                    ['caption' => $this->t('Tibber price overview — by postal code'), 'value' => self::SOURCE_TIBBER],
+                    ['caption' => $this->t('aWATTar — hourly values only'), 'value' => self::SOURCE_AWATTAR],
                 ]],
-                ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => 'Postleitzahl', 'validate' => '^[0-9]{5}$', 'width' => self::FIELD_WIDTH],
-                ['type' => 'Label', 'name' => 'TibberPostalHint', 'visible' => $tibber, 'caption' => 'ℹ️ Die Postleitzahl bestimmt Netzentgelt und Abgaben in Tibbers Endpreis und wird an Tibber übertragen.'],
+                ['type' => 'ValidationTextBox', 'name' => 'TibberPostalCode', 'visible' => $tibber, 'caption' => $this->t('Postal code'), 'validate' => '^[0-9]{5}$', 'width' => self::FIELD_WIDTH],
+                ['type' => 'Label', 'name' => 'TibberPostalHint', 'visible' => $tibber, 'caption' => $this->t('ℹ️ The postal code determines the grid fee and levies in Tibber\'s retail price and is sent to Tibber.')],
                 ['type' => 'Label', 'name' => 'EntsoeTokenStatus', 'visible' => $entsoe, 'caption' => $this->entsoeTokenStatus()],
-                ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => 'ENTSO-E-Zugangsschlüssel', 'width' => self::FIELD_WIDTH],
-                ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => '🔑 Schlüssel speichern', 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
-                ['type' => 'Button', 'name' => 'EntsoeTokenGuide', 'visible' => $entsoe, 'caption' => 'Anleitung: Zugangsschlüssel beantragen', 'onClick' => "echo '" . self::ENTSOE_TOKEN_URL . "';", 'link' => true],
-                ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => 'Gebotszone', 'width' => self::FIELD_WIDTH, 'options' => $zones],
-                ['type' => 'PopupButton', 'caption' => 'Welche Quelle und Gebotszone soll ich wählen?', 'width' => '500px', 'popup' => [
-                    'caption' => 'Welche Quelle und Gebotszone soll ich wählen?',
+                ['type' => 'PasswordTextBox', 'name' => 'EntsoeTokenInput', 'visible' => $entsoe, 'caption' => $this->t('ENTSO-E access key'), 'width' => self::FIELD_WIDTH],
+                ['type' => 'Button', 'name' => 'EntsoeTokenButton', 'visible' => $entsoe, 'caption' => $this->t('🔑 Save key'), 'onClick' => 'echo SPOT_SetEntsoeToken($id, $EntsoeTokenInput);'],
+                ['type' => 'Button', 'name' => 'EntsoeTokenGuide', 'visible' => $entsoe, 'caption' => $this->t('Guide: request an access key'), 'onClick' => "echo '" . self::ENTSOE_TOKEN_URL . "';", 'link' => true],
+                ['type' => 'Select', 'name' => 'BiddingZone', 'caption' => $this->t('Bidding zone'), 'width' => self::FIELD_WIDTH, 'options' => $zones],
+                ['type' => 'PopupButton', 'caption' => $this->t('Which source and bidding zone should I choose?'), 'width' => '500px', 'popup' => [
+                    'caption' => $this->t('Which source and bidding zone should I choose?'),
                     'items' => [
-                        ['type' => 'Label', 'caption' => 'Gebotszone: die Zone deines Netzanschlusses — Deutschland und Luxemburg bilden gemeinsam „DE-LU", Österreich ist „AT". Der Preis ist in der ganzen Zone gleich.'],
-                        ['type' => 'Label', 'caption' => 'Energy-Charts (empfohlen): Viertelstundenwerte direkt aus der Day-Ahead-Auktion, frei nutzbar mit Quellennennung. Genau das braucht man für Regeln, die je Viertelstunde gelten, z. B. die Vergütungsregel bei negativen Preisen.'],
-                        ['type' => 'Label', 'caption' => 'EPEX Spot (über ENTSO-E): dieselben Börsenergebnisse der EPEX Spot, direkt von der europäischen Transparenzplattform der Netzbetreiber, ebenfalls in Viertelstunden. Braucht einen kostenlosen, persönlichen Zugangsschlüssel — sinnvoll als unabhängige zweite Quelle oder wenn du ohnehin ein ENTSO-E-Konto hast.'],
-                        ['type' => 'Label', 'caption' => 'Tibber-Preisübersicht: ohne Konto, nur mit deiner Postleitzahl. Liefert denselben Börsenpreis und zusätzlich Tibbers Endpreis für diese Postleitzahl — den nutzt die Variable für den Symcon Energie Manager, damit er nach dem echten Tibber-Preis planen kann, auch ohne das Modul Tibber Grid Rewards.'],
-                        ['type' => 'Label', 'caption' => 'aWATTar: Ersatzquelle, falls Energy-Charts einmal nicht erreichbar ist. Liefert nur Stundenwerte; eine einzelne negative Viertelstunde kann darin untergehen.'],
-                        ['type' => 'Label', 'caption' => 'Nach einem Wechsel verwirft das Modul die alten Preise und holt beim Übernehmen sofort neu.'],
+                        ['type' => 'Label', 'caption' => $this->t('Bidding zone: the zone of your grid connection — Germany and Luxembourg together form "DE-LU", Austria is "AT". The price is the same throughout the zone.')],
+                        ['type' => 'Label', 'caption' => $this->t('Energy-Charts (recommended): quarter-hour values straight from the day-ahead auction, free to use with attribution. That is exactly what you need for rules that apply per quarter hour, such as the feed-in rule for negative prices.')],
+                        ['type' => 'Label', 'caption' => $this->t('EPEX Spot (via ENTSO-E): the same EPEX Spot results, straight from the European transparency platform of the grid operators, also in quarter hours. Needs a free, personal access key — useful as an independent second source or if you have an ENTSO-E account anyway.')],
+                        ['type' => 'Label', 'caption' => $this->t('Tibber price overview: no account, just your postal code. Returns the same exchange price plus Tibber\'s retail price for that postal code — the variable for the Symcon Energy Manager uses it so the manager can plan with the real Tibber price, even without the Tibber Grid Rewards module.')],
+                        ['type' => 'Label', 'caption' => $this->t('aWATTar: fallback source if Energy-Charts is unreachable. Returns hourly values only; a single negative quarter hour can get lost in them.')],
+                        ['type' => 'Label', 'caption' => $this->t('After a change the module discards the old prices and fetches again right away when you apply.')],
                     ],
                 ]],
                 ['type' => 'Label', 'name' => 'SourceInfo', 'caption' => $this->sourceInfo()],
-                ['type' => 'Button', 'caption' => '🔄 Preise jetzt abrufen', 'onClick' => 'echo SPOT_Update($id);'],
+                ['type' => 'Button', 'caption' => $this->t('🔄 Fetch prices now'), 'onClick' => 'echo SPOT_Update($id);'],
                 ['type' => 'Label', 'name' => 'FetchStatus', 'caption' => $this->fetchStatusLine()],
             ],
         ];
@@ -1687,24 +1756,24 @@ class Boersenpreis extends IPSModule
     {
         return [
             'type' => 'ExpansionPanel', 'expanded' => true,
-            'caption' => '📈  Börsenpreise',
+            'caption' => $this->t('📈  Exchange prices'),
             'items' => [
                 ['type' => 'Label', 'name' => 'PriceSummary', 'caption' => $this->priceSummary()],
-                ['type' => 'CheckBox', 'name' => 'ArchivePrice', 'caption' => 'Preisverlauf archivieren'],
+                ['type' => 'CheckBox', 'name' => 'ArchivePrice', 'caption' => $this->t('Archive price history')],
                 ['type' => 'Label', 'name' => 'ArchiveStatus', 'caption' => $this->archiveStatus()],
-                ['type' => 'PopupButton', 'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?', 'width' => '500px', 'popup' => [
-                    'caption' => 'Warum der Börsenpreis und nicht mein Stromtarif?',
+                ['type' => 'PopupButton', 'caption' => $this->t('Why the exchange price and not my electricity tariff?'), 'width' => '500px', 'popup' => [
+                    'caption' => $this->t('Why the exchange price and not my electricity tariff?'),
                     'items' => [
-                        ['type' => 'Label', 'caption' => 'Dein Tarif ist das, was du für Strom aus dem Netz bezahlst — mit Steuern, Umlagen und Netzentgelt. Der Börsenpreis ist der reine Großhandelspreis der Day-Ahead-Auktion.'],
-                        ['type' => 'Label', 'caption' => 'Einige Regeln knüpfen ausdrücklich an den Börsenpreis an, egal welchen Tarif du hast — z. B. die Einspeisevergütung bei negativen Preisen oder künftig die Vermarktung von Neuanlagen. Für Kostenvergleiche mit deinem Bezugspreis ist der Börsenpreis dagegen allein nicht geeignet.'],
+                        ['type' => 'Label', 'caption' => $this->t('Your tariff is what you pay for electricity from the grid — including taxes, levies and grid fee. The exchange price is the plain wholesale price of the day-ahead auction.')],
+                        ['type' => 'Label', 'caption' => $this->t('Some rules refer explicitly to the exchange price, whatever tariff you have — for example the feed-in tariff during negative prices, or in future the marketing of new systems. For comparing costs with your purchase price, however, the exchange price alone is not suitable.')],
                     ],
                 ]],
-                ['type' => 'PopupButton', 'caption' => 'Was bedeuten negative Preise für meine Vergütung?', 'width' => '500px', 'popup' => [
-                    'caption' => 'Was bedeuten negative Preise für meine Vergütung?',
+                ['type' => 'PopupButton', 'caption' => $this->t('What do negative prices mean for my feed-in tariff?'), 'width' => '500px', 'popup' => [
+                    'caption' => $this->t('What do negative prices mean for my feed-in tariff?'),
                     'items' => [
-                        ['type' => 'Label', 'caption' => 'Für PV-Anlagen mit Inbetriebnahme ab 25.02.2025 (Solarspitzengesetz) entfällt die Einspeisevergütung in jeder Viertelstunde, in der der Day-Ahead-Börsenpreis negativ ist (§ 51 EEG). Die ausgefallene Zeit wird am Ende der Förderdauer teilweise angehängt.'],
-                        ['type' => 'Label', 'caption' => 'Ältere Anlagen sind je nach Größe und Inbetriebnahmejahr anders oder gar nicht betroffen. Eine Einordnung für deine Anlage liefert das NRG-Stack EMS über seine Anlagendaten. Keine Rechtsberatung.'],
-                        ['type' => 'Label', 'caption' => 'Dieses Modul zeigt, wann negative Viertelstunden anstehen — ein EMS kann die Energie dann z. B. in die Batterie, die Wärmepumpe oder das Auto lenken statt ins Netz.'],
+                        ['type' => 'Label', 'caption' => $this->t('For PV systems commissioned on or after 25.02.2025 (German "Solarspitzengesetz") the feed-in tariff is dropped for every quarter hour in which the day-ahead exchange price is negative (§ 51 EEG). The lost time is partly added at the end of the support period.')],
+                        ['type' => 'Label', 'caption' => $this->t('Older systems are affected differently or not at all, depending on size and year of commissioning. The NRG-Stack EMS classifies this for your system from its plant data. This is not legal advice.')],
+                        ['type' => 'Label', 'caption' => $this->t('This module shows when negative quarter hours are coming up — an EMS can then route the energy into the battery, the heat pump or the car instead of the grid.')],
                     ],
                 ]],
             ],
@@ -1715,7 +1784,7 @@ class Boersenpreis extends IPSModule
     {
         $vid = IPS_GetObjectIDByIdent('MarketData', $this->InstanceID);
         $ct = function (float $v) {
-            return number_format($v, 3, ',', '.');
+            return $this->num($v, 3);
         };
         $quarter = function (int $q, string $months) {
             return ['type' => 'CheckBox', 'name' => 'Modul3Q' . $q, 'caption' => 'Q' . $q . ' (' . $months . ')'];
@@ -1724,65 +1793,65 @@ class Boersenpreis extends IPSModule
         $auto = $this->tibberAutoLine($info);
         $show = $auto === ''; // Tarif-Felder nur, wenn der Endpreis NICHT automatisch von Tibber kommt
         $refresh = 'SPOT_UIRefreshMarket($id, $UseTibberPrice, $TariffEnabled, $TibberInstance, $Source);';
-        $instOptions = [['caption' => 'bitte wählen', 'value' => 0]];
+        $instOptions = [['caption' => $this->t('please choose'), 'value' => 0]];
         foreach ($info['list'] as $iid) {
             $instOptions[] = ['caption' => '#' . $iid . ' ' . IPS_GetName($iid), 'value' => $iid];
         }
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
-            'caption' => '⚡  Symcon Energie Manager & Tarif',
+            'caption' => $this->t('⚡  Symcon Energy Manager & tariff'),
             'items' => [
-                ['type' => 'Label', 'caption' => 'Die Variable „Marktdaten (Energie Manager)“' . ($vid !== false ? ' (ID ' . $vid . ')' : '') . ' liefert die Preise ab jetzt für bis zu 24 Stunden im Format von Symcons Modul „Strompreis“. Im Symcon Energie Manager unter „Energiepreise“ diese Variable auswählen — dann plant er z. B. das günstige Laden nach deinem Endpreis.'],
+                ['type' => 'Label', 'caption' => $this->t('The variable "Market data (Energy Manager)"%s provides the prices from now for up to 24 hours in the format of Symcon\'s "Strompreis" module. In the Symcon Energy Manager select this variable under "Energiepreise" — it then plans cheap charging, for example, using your retail price.', $vid !== false ? ' (ID ' . $vid . ')' : '')],
                 ['type' => 'Label', 'name' => 'MarketSourceStatus', 'caption' => $this->marketSourceStatus($info)],
-                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => 'Preis von Tibber Grid Rewards nutzen', 'onChange' => $refresh],
-                ['type' => 'Label', 'caption' => 'ℹ️ Nur wenn das Modul Tibber Grid Rewards installiert ist: dann kommt dein echter Tibber-Endpreis von dort (empfohlen für Tibber-Kunden).'],
-                ['type' => 'Select', 'name' => 'TibberInstance', 'caption' => 'Tibber-Instanz', 'width' => self::FIELD_WIDTH, 'options' => $instOptions,
+                ['type' => 'CheckBox', 'name' => 'UseTibberPrice', 'caption' => $this->t('Use price from Tibber Grid Rewards'), 'onChange' => $refresh],
+                ['type' => 'Label', 'caption' => $this->t('ℹ️ Only if the Tibber Grid Rewards module is installed: then your real Tibber retail price comes from there (recommended for Tibber customers).')],
+                ['type' => 'Select', 'name' => 'TibberInstance', 'caption' => $this->t('Tibber instance'), 'width' => self::FIELD_WIDTH, 'options' => $instOptions,
                     'visible' => count($info['list']) > 1 && $info['state'] !== 'off', 'onChange' => $refresh],
                 ['type' => 'Label', 'name' => 'TibberAutoLine', 'caption' => $auto, 'visible' => !$show, 'color' => $show ? -1 : self::COLOR_AUTO],
-                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => 'Eigenen Tarif einrechnen', 'visible' => $show, 'onChange' => $refresh],
-                ['type' => 'Label', 'name' => 'TariffIntro', 'visible' => $show, 'caption' => 'z. B. für einen anderen dynamischen Tarif. Alle Beträge netto in ct/kWh — die Mehrwertsteuer rechnet das Modul selbst hinzu.'],
+                ['type' => 'CheckBox', 'name' => 'TariffEnabled', 'caption' => $this->t('Include my own tariff'), 'visible' => $show, 'onChange' => $refresh],
+                ['type' => 'Label', 'name' => 'TariffIntro', 'visible' => $show, 'caption' => $this->t('For example for a different dynamic tariff. All amounts net in ct/kWh — the module adds VAT itself.')],
                 // Minimum 0: Bei negativem Minimum zeigte die Konsole für den Wert 0 das Minimum an (−20, Live-Fund 14.09.2026).
-                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'visible' => $show, 'caption' => 'Aufschlag des Anbieters', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 100, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'visible' => $show, 'caption' => 'Konzessionsabgabe', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 5, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'visible' => $show, 'caption' => 'Netzentgelt (Arbeitspreis)', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'Label', 'name' => 'TariffTaxInfo', 'visible' => $show, 'caption' => 'Bundesweit gleich und fest eingerechnet (Stand ' . self::TAX_STAND . ', netto): Stromsteuer ' . $ct(self::TAX_STROMSTEUER) . ' · Offshore-Netzumlage ' . $ct(self::TAX_OFFSHORE) . ' · KWK-Umlage ' . $ct(self::TAX_KWK) . ' · §19-StromNEV-Umlage ' . $ct(self::TAX_STROMNEV19) . ' ct/kWh; auf die Summe ' . (int)self::VAT_PERCENT . ' % Mehrwertsteuer.'],
-                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'visible' => $show, 'caption' => 'Netzentgelt nach § 14a Modul 3'],
-                ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'visible' => $show, 'caption' => 'Netzentgelt Hochtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzST', 'visible' => $show, 'caption' => 'Netzentgelt Standardtarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
-                ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'visible' => $show, 'caption' => 'Netzentgelt Niedertarif', 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'TariffBeschaffung', 'visible' => $show, 'caption' => $this->t('Supplier surcharge'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 100, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'TariffKonzession', 'visible' => $show, 'caption' => $this->t('Concession levy'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 5, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzArbeitspreis', 'visible' => $show, 'caption' => $this->t('Grid fee (energy rate)'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'Label', 'name' => 'TariffTaxInfo', 'visible' => $show, 'caption' => $this->t('Identical nationwide and included automatically (as of %s, net): electricity tax %s · offshore grid levy %s · CHP levy %s · § 19 StromNEV levy %s ct/kWh; %s %% VAT on the total.', self::TAX_STAND, $ct(self::TAX_STROMSTEUER), $ct(self::TAX_OFFSHORE), $ct(self::TAX_KWK), $ct(self::TAX_STROMNEV19), (int)self::VAT_PERCENT)],
+                ['type' => 'CheckBox', 'name' => 'Modul3Enabled', 'visible' => $show, 'caption' => $this->t('Grid fee under § 14a module 3')],
+                ['type' => 'NumberSpinner', 'name' => 'NetzHT', 'visible' => $show, 'caption' => $this->t('Grid fee peak rate'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzST', 'visible' => $show, 'caption' => $this->t('Grid fee standard rate'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
+                ['type' => 'NumberSpinner', 'name' => 'NetzNT', 'visible' => $show, 'caption' => $this->t('Grid fee off-peak rate'), 'suffix' => ' ct/kWh', 'digits' => 3, 'minimum' => 0, 'maximum' => 50, 'width' => self::FIELD_WIDTH],
                 [
-                    'type' => 'List', 'name' => 'NetzWindows', 'visible' => $show, 'caption' => 'Zeitfenster laut Preisblatt deines Netzbetreibers', 'rowCount' => 6, 'add' => true, 'delete' => true,
+                    'type' => 'List', 'name' => 'NetzWindows', 'visible' => $show, 'caption' => $this->t('Time windows from your grid operator'), 'rowCount' => 6, 'add' => true, 'delete' => true,
                     'columns' => [
-                        ['caption' => 'Von', 'name' => 'From', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
-                        ['caption' => 'Bis', 'name' => 'To', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
-                        ['caption' => 'Stufe', 'name' => 'Band', 'width' => '190px', 'add' => 'ST', 'edit' => ['type' => 'Select', 'options' => [
-                            ['caption' => 'Hochtarif (HT)', 'value' => 'HT'],
-                            ['caption' => 'Standardtarif (ST)', 'value' => 'ST'],
-                            ['caption' => 'Niedertarif (NT)', 'value' => 'NT'],
+                        ['caption' => $this->t('From'), 'name' => 'From', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
+                        ['caption' => $this->t('To'), 'name' => 'To', 'width' => '110px', 'add' => '00:00', 'edit' => ['type' => 'ValidationTextBox', 'validate' => '^([01][0-9]|2[0-3]):[0-5][0-9]$']],
+                        ['caption' => $this->t('Rate'), 'name' => 'Band', 'width' => '190px', 'add' => 'ST', 'edit' => ['type' => 'Select', 'options' => [
+                            ['caption' => $this->t('Peak rate (HT)'), 'value' => 'HT'],
+                            ['caption' => $this->t('Standard rate (ST)'), 'value' => 'ST'],
+                            ['caption' => $this->t('Off-peak rate (NT)'), 'value' => 'NT'],
                         ]]],
-                        ['caption' => 'Tage', 'name' => 'Days', 'width' => 'auto', 'add' => 'all', 'edit' => ['type' => 'Select', 'options' => [
-                            ['caption' => 'Alle Tage', 'value' => 'all'],
-                            ['caption' => 'Montag–Freitag', 'value' => 'weekday'],
-                            ['caption' => 'Samstag und Sonntag', 'value' => 'weekend'],
+                        ['caption' => $this->t('Days'), 'name' => 'Days', 'width' => 'auto', 'add' => 'all', 'edit' => ['type' => 'Select', 'options' => [
+                            ['caption' => $this->t('All days'), 'value' => 'all'],
+                            ['caption' => $this->t('Monday–Friday'), 'value' => 'weekday'],
+                            ['caption' => $this->t('Saturday and Sunday'), 'value' => 'weekend'],
                         ]]],
                     ],
                 ],
-                ['type' => 'RowLayout', 'name' => 'Modul3Quarters', 'visible' => $show, 'items' => [$quarter(1, 'Jan–Mär'), $quarter(2, 'Apr–Jun'), $quarter(3, 'Jul–Sep'), $quarter(4, 'Okt–Dez')]],
-                ['type' => 'Label', 'name' => 'Modul3Hint', 'visible' => $show, 'caption' => 'Außerhalb der Zeitfenster und in Quartalen ohne Häkchen gilt der Arbeitspreis. „Bis 00:00“ heißt Tagesende, Fenster über Mitternacht sind erlaubt. Feiertage kennt das Modul nicht — sie zählen wie ihr Wochentag.'],
-                ['type' => 'PopupButton', 'name' => 'TariffHelp', 'visible' => $show, 'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?', 'width' => '500px', 'popup' => [
-                    'caption' => 'Wo finde ich Netzentgelt und Konzessionsabgabe?',
+                ['type' => 'RowLayout', 'name' => 'Modul3Quarters', 'visible' => $show, 'items' => [$quarter(1, $this->t('Jan–Mar')), $quarter(2, $this->t('Apr–Jun')), $quarter(3, $this->t('Jul–Sep')), $quarter(4, $this->t('Oct–Dec'))]],
+                ['type' => 'Label', 'name' => 'Modul3Hint', 'visible' => $show, 'caption' => $this->t('Outside the time windows and in quarters without a tick the energy rate applies. "To 00:00" means end of day, windows across midnight are allowed. The module does not know public holidays — they count as their weekday.')],
+                ['type' => 'PopupButton', 'name' => 'TariffHelp', 'visible' => $show, 'caption' => $this->t('Where do I find the grid fee and the concession levy?'), 'width' => '500px', 'popup' => [
+                    'caption' => $this->t('Where do I find the grid fee and the concession levy?'),
                     'items' => [
-                        ['type' => 'Label', 'caption' => 'Netzentgelt und die § 14a-Modul-3-Zeitfenster stehen im Preisblatt deines Netzbetreibers (auf dessen Webseite, meist „Netzentgelte“ bzw. „Preisblatt Netznutzung“) und auf deiner Stromrechnung. Den Netzbetreiber findest du auf der Rechnung oder über deine Postleitzahl.'],
-                        ['type' => 'Label', 'caption' => 'Die Konzessionsabgabe hängt von deiner Gemeinde ab (in Deutschland meist zwischen 1,32 und 2,39 ct/kWh netto) und steht ebenfalls auf der Rechnung. Den Aufschlag nennt dein Anbieter in seinen Tarifbedingungen.'],
-                        ['type' => 'Label', 'caption' => 'Alle Werte netto eintragen — die Mehrwertsteuer rechnet das Modul selbst hinzu. Ist Tibber Grid Rewards installiert, brauchst du hier nichts einzutragen: dann kommt dein echter Tibber-Preis von dort.'],
+                        ['type' => 'Label', 'caption' => $this->t('The grid fee and the § 14a module 3 time windows are listed by your grid operator (on their website, usually under "Netzentgelte" or "Preisblatt Netznutzung") and on your electricity bill. The grid operator is named on the bill or can be found from your postal code.')],
+                        ['type' => 'Label', 'caption' => $this->t('The concession levy depends on your municipality (in Germany usually between 1.32 and 2.39 ct/kWh net) and is also shown on the bill. Your supplier states the surcharge in its tariff conditions.')],
+                        ['type' => 'Label', 'caption' => $this->t('Enter all values net — the module adds VAT itself. If Tibber Grid Rewards is installed you do not need to enter anything here: your real Tibber price comes from there.')],
                     ],
                 ]],
-                ['type' => 'PopupButton', 'caption' => 'Wie binde ich den Energie Manager an?', 'width' => '500px', 'popup' => [
-                    'caption' => 'Wie binde ich den Energie Manager an?',
+                ['type' => 'PopupButton', 'caption' => $this->t('How do I connect the Energy Manager?'), 'width' => '500px', 'popup' => [
+                    'caption' => $this->t('How do I connect the Energy Manager?'),
                     'items' => [
-                        ['type' => 'Label', 'caption' => '1. Im Symcon Energie Manager das Feld „Energiepreise“ öffnen und die Variable „Marktdaten (Energie Manager)“ dieser Instanz auswählen.'],
-                        ['type' => 'Label', 'caption' => '2. Woher der Preis kommt, zeigt die Statuszeile oben: echter Tibber-Preis (Tibber Grid Rewards), dein eigener Tarif, Tibbers Preis für deine Postleitzahl oder der reine Börsenpreis.'],
-                        ['type' => 'Label', 'caption' => '3. Die Variable wird zu jeder Viertelstunde und nach jedem Abruf neu geschrieben; vergangene Viertelstunden fallen heraus.'],
+                        ['type' => 'Label', 'caption' => $this->t('1. In the Symcon Energy Manager open the field "Energiepreise" and select this instance\'s variable "Market data (Energy Manager)".')],
+                        ['type' => 'Label', 'caption' => $this->t('2. Where the price comes from is shown by the status line above: real Tibber price (Tibber Grid Rewards), your own tariff, Tibber\'s price for your postal code, or the plain exchange price.')],
+                        ['type' => 'Label', 'caption' => $this->t('3. The variable is rewritten every quarter hour and after every fetch; past quarter hours drop out.')],
                     ],
                 ]],
             ],
@@ -1797,11 +1866,11 @@ class Boersenpreis extends IPSModule
         // Muster MeterHub (EMS-Vorgabe 14.09.2026): eigenes Panel; Thread live seit 16.09.2026.
         return [
             'type' => 'ExpansionPanel', 'name' => 'ForumHintPanel', 'expanded' => true,
-            'caption' => '💬  Feedback im Symcon-Forum',
+            'caption' => $this->t('💬  Feedback in the Symcon forum'),
             'items' => [
-                ['type' => 'Label', 'caption' => 'Börsenpreis ist neu — Rückmeldungen, gerade zu den Quellen und zum Tarif für den Energie Manager, sind ausdrücklich willkommen im Community-Thread.'],
-                ['type' => 'Button', 'caption' => 'Zum Forums-Thread', 'onClick' => "echo '" . self::FORUM_THREAD_URL . "';", 'link' => true],
-                ['type' => 'Button', 'caption' => 'Verstanden – nicht mehr anzeigen', 'onClick' => 'SPOT_AckForumHint($id);'],
+                ['type' => 'Label', 'caption' => $this->t('Börsenpreis is new — feedback, especially on the sources and on the tariff for the Energy Manager, is very welcome in the community thread.')],
+                ['type' => 'Button', 'caption' => $this->t('To the forum thread'), 'onClick' => "echo '" . self::FORUM_THREAD_URL . "';", 'link' => true],
+                ['type' => 'Button', 'caption' => $this->t('Understood – do not show again'), 'onClick' => 'SPOT_AckForumHint($id);'],
             ],
         ];
     }
@@ -1815,14 +1884,14 @@ class Boersenpreis extends IPSModule
     {
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
-            'caption' => '🧡  Über dieses Modul',
+            'caption' => $this->t('🧡  About this module'),
             'items' => [
-                ['type' => 'Label', 'caption' => 'Entstanden aus echter Begeisterung für die eigene Anlage — und ein paar durchgetippten Abenden. Trotzdem: Software-Hobby hin oder her, das hier ist geistiges Eigentum und echte Arbeit steckt drin.'],
-                ['type' => 'Label', 'caption' => 'Lizenz: PolyForm Noncommercial 1.0.0 — privat und nicht-kommerziell frei nutzbar, für den gewerblichen Einsatz braucht es eine gesonderte Lizenz vom Rechteinhaber.'],
-                ['type' => 'Button', 'caption' => 'Lizenztext ansehen', 'onClick' => "echo '" . self::LICENSE_URL . "';", 'link' => true],
-                ['type' => 'Label', 'caption' => 'Gewerbliche Nutzung oder Fragen zur Lizenz? Einfach melden: dietmar@gureth.eu'],
-                ['type' => 'Label', 'caption' => 'Gefällt dir das Modul und du möchtest trotzdem etwas dalassen? Über eine kleine Spende freue ich mich — völlig freiwillig, keine Gegenleistung nötig.'],
-                ['type' => 'Button', 'caption' => '☕  Spenden via PayPal', 'onClick' => "echo '" . self::PAYPAL_URL . "';", 'link' => true],
+                ['type' => 'Label', 'caption' => $this->t('Born out of real enthusiasm for my own energy system — and a few evenings spent typing. Still: hobby or not, this is intellectual property and real work went into it.')],
+                ['type' => 'Label', 'caption' => $this->t('Licence: PolyForm Noncommercial 1.0.0 — free for private and non-commercial use; commercial use requires a separate licence from the rights holder.')],
+                ['type' => 'Button', 'caption' => $this->t('View licence text'), 'onClick' => "echo '" . self::LICENSE_URL . "';", 'link' => true],
+                ['type' => 'Label', 'caption' => $this->t('Commercial use or questions about the licence? Just get in touch: dietmar@gureth.eu')],
+                ['type' => 'Label', 'caption' => $this->t('Do you like the module and still want to leave something? A small donation is always a pleasure — entirely voluntary, nothing expected in return.')],
+                ['type' => 'Button', 'caption' => $this->t('☕  Donate via PayPal'), 'onClick' => "echo '" . self::PAYPAL_URL . "';", 'link' => true],
             ],
         ];
     }
@@ -1879,28 +1948,28 @@ class Boersenpreis extends IPSModule
             }
         }
         $hiddenLine = $hidden
-            ? [['type' => 'Label', 'caption' => '🙈 Ausgeblendet: ' . implode(', ', $hidden) . ' — zum Wiederzeigen den Haken bei „Ausgeblendet" entfernen. Ausgeblendete Bereiche arbeiten weiter, nur die Anzeige fehlt.']]
+            ? [['type' => 'Label', 'caption' => $this->t('🙈 Hidden: %s — to show them again remove the tick at "Hidden". Hidden sections keep working, only the display is missing.', implode(', ', $hidden))]]
             : [];
         return [
             'type' => 'ExpansionPanel', 'expanded' => false,
-            'caption' => '🪟  Formular: Aufbau' . ($hidden ? ' (' . count($hidden) . ' ausgeblendet)' : ''),
+            'caption' => $this->t('🪟  Form: layout') . ($hidden ? ' ' . $this->t('(%s hidden)', count($hidden)) : ''),
             'items' => array_merge($hiddenLine, [
-                ['type' => 'Label', 'caption' => 'Hier legst du fest, welche Bereiche beim Öffnen des Formulars aufgeklappt sind und in welcher Reihenfolge sie stehen. Symcon merkt sich das Auf- und Zuklappen nicht selbst, deshalb gilt die Einstellung hier jedes Mal beim Öffnen. Sie wirkt nach „Übernehmen" beim nächsten Öffnen des Formulars.'],
-                ['type' => 'Label', 'caption' => 'Kein Haken heißt „Standard": wie das Modul es vorsieht. Die Position ist eine Zahl; bei gleicher Zahl bleibt die Standardreihenfolge. „Ausgeblendet" nimmt einen Bereich aus der Anzeige, ohne dass er etwas verliert: seine Einstellungen bleiben erhalten und wirken weiter — der Tarif für den Energie Manager wird also weiter gerechnet, auch wenn sein Bereich ausgeblendet ist. Sind mehrere Haken gesetzt, gilt „Ausgeblendet" vor „Zugeklappt" vor „Aufgeklappt". Die Bereiche oben („Wozu dieses Modul?", „Neu", „Dokumentation & Hilfe") und unten („Feedback im Symcon-Forum", „Über dieses Modul") bleiben, wo sie sind, und lassen sich nicht ausblenden.'],
+                ['type' => 'Label', 'caption' => $this->t('Here you decide which sections are expanded when the form opens and in which order they appear. Symcon does not remember expanding and collapsing itself, so the setting here applies every time the form opens. It takes effect after "Apply", the next time you open the form.')],
+                ['type' => 'Label', 'caption' => $this->t('No tick means "default": the way the module intends it. The position is a number; with equal numbers the default order stays. "Hidden" takes a section out of the display without losing anything: its settings are kept and keep working — the tariff for the Energy Manager is still calculated even when its section is hidden. If several boxes are ticked, "Hidden" beats "Collapsed" beats "Expanded". The sections at the top ("What is this module for?", "New", "Documentation & help") and at the bottom ("Feedback in the Symcon forum", "About this module") stay where they are and cannot be hidden.')],
                 [
-                    'type' => 'List', 'name' => 'FormLayout', 'caption' => 'Bereiche', 'rowCount' => count($rows), 'add' => false, 'delete' => false,
+                    'type' => 'List', 'name' => 'FormLayout', 'caption' => $this->t('Sections'), 'rowCount' => count($rows), 'add' => false, 'delete' => false,
                     'loadValuesFromConfiguration' => false,
                     'values' => $rows,
                     'columns' => [
-                        ['caption' => 'Bereich', 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
-                        ['caption' => 'Schlüssel', 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
-                        ['caption' => 'Aufgeklappt', 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                        ['caption' => 'Zugeklappt', 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                        ['caption' => '🙈 Ausgeblendet', 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                        ['caption' => 'Position', 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]],
+                        ['caption' => $this->t('Section'), 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
+                        ['caption' => $this->t('Key'), 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
+                        ['caption' => $this->t('Expanded'), 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => $this->t('Collapsed'), 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => $this->t('🙈 Hidden'), 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                        ['caption' => $this->t('Position'), 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]],
                     ],
                 ],
-                ['type' => 'Button', 'caption' => '↩️ Auf Standard zurücksetzen', 'onClick' => 'echo SPOT_ResetFormLayout($id);'],
+                ['type' => 'Button', 'caption' => $this->t('↩️ Reset to default'), 'onClick' => 'echo SPOT_ResetFormLayout($id);'],
             ]),
         ];
     }
@@ -1917,11 +1986,13 @@ class Boersenpreis extends IPSModule
             $rows[] = ['Key' => $key, 'Panel' => $name, 'Opened' => false, 'Closed' => false, 'Hidden' => false, 'Pos' => $i + 1];
         }
         $this->UpdateFormField('FormLayout', 'values', json_encode($rows, JSON_UNESCAPED_UNICODE));
-        return 'ℹ️ Auf Standard gesetzt. Zum Speichern unten „Übernehmen" klicken.';
+        return $this->t('ℹ️ Reset to default. Click "Apply" below to save.');
     }
 
     public function GetConfigurationForm()
     {
+        $this->istDeutsch = null;   // Sprache je Formularaufbau einmal neu ermitteln
+
         $base   = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
         $status = $base['status'] ?? [];
 

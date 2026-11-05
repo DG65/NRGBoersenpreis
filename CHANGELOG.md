@@ -3,6 +3,25 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.10.0] - 2026-11-05
+
+### Added
+- **Zweisprachig Deutsch/Englisch** (Verbund-Konvention SUITE.md 9, Dietmar 05.11.2026): Formular,
+  Meldungen, Variablennamen, Profile („Ja/Nein“) und Statuszeilen folgen der Spracheinstellung von
+  Symcon. Die Quelltexte im Code sind englisch, die deutschen Fassungen stehen in
+  `Boersenpreis/locale.json` — deutsch bleibt die maßgebliche Fassung, die Texte sind unverändert.
+  Zahlen und Datumsangaben folgen der Sprache (deutsch 1.234,56 und TT.MM.JJJJ, englisch 1,234.56
+  und JJJJ-MM-TT). Englische Kurzanleitung: `README.en.md`.
+- **Prüfstand prüft beide Sprachen:** jeder übersetzte Text hat eine deutsche Fassung, kein
+  deutscher Quelltext mehr im Code, das Formular wird einmal englisch erzeugt und auf deutsche
+  Reste geprüft, Zahlformat je Sprache, und ein Viertelstunden-Takt übersetzt höchstens 20 Texte
+  (Stolperstein 24: kein Translate-Sturm).
+
+### Changed
+- Kennungen bleiben unverändert: Idents, Property- und Funktionsnamen sowie alle Vertragsfelder
+  (`basis`, `netzentgelt`, `quelle`, `aufloesung`) sind weiterhin die alten — bestehende Instanzen
+  verlieren nichts.
+
 ## [0.9.0] - 2026-10-29
 
 ### Added

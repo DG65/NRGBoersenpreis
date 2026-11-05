@@ -1,13 +1,15 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.9.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.10.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml)
 [![PayPal](https://img.shields.io/badge/PayPal-Me-blue?logo=paypal)](https://paypal.me/DietmarGureth)
 
-**Day-Ahead-Börsenpreise für IP-Symcon — ohne Konto, ohne bestimmten Stromanbieter.**
+*English version: [README.en.md](README.en.md)*
+
+**Day-Ahead-Börsenpreise für Symcon — ohne Konto, ohne bestimmten Stromanbieter.**
 Das Modul holt die Preise der Day-Ahead-Auktion für heute und morgen (je Viertelstunde,
 Gebotszone Deutschland/Luxemburg oder Österreich) und stellt sie als Variablen, für eigene
 Skripte und für andere NRG-Stack-Module bereit.
