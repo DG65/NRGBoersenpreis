@@ -179,7 +179,32 @@ function resp(int $status, string $body = '', array $headers = [], string $error
 function ecFirst(string $file, int $n): string { $d = json_decode(fx($file), true); $d['unix_seconds'] = array_slice($d['unix_seconds'], 0, $n); $d['price'] = array_slice($d['price'], 0, $n); return json_encode($d); }
 function requestsSince(int $from): array { return array_slice($GLOBALS['REQUESTS'], $from); }
 function v(SpotTest $m, string $ident) { return $m->GetValue($ident); }
-function form(SpotTest $m): array { $f = json_decode($m->GetConfigurationForm(), true); if (!is_array($f)) { throw new RuntimeException('GetConfigurationForm() liefert kein gültiges JSON'); } return $f; }
+/**
+ * Formular wie die Symcon-Konsole: Sie übersetzt caption/label/Options selbst anhand der
+ * locale.json (Store-Review WPModbusHub, Checkliste 25) — das Modul liefert sie englisch.
+ * Der Prüfstand bildet genau das nach, damit die Prüfungen den ANGEZEIGTEN Text sehen.
+ */
+function konsoleUebersetzt(array $el): array
+{
+    foreach ($el as $k => $v) {
+        if (is_array($v)) {
+            $el[$k] = konsoleUebersetzt($v);
+        } elseif (in_array($k, ['caption', 'label'], true) && is_string($v)) {
+            $el[$k] = konsoleText($v);
+        }
+    }
+    return $el;
+}
+function konsoleText(string $text): string
+{
+    $lang = $GLOBALS['LOCALE'] ?? 'de';
+    if ($lang === 'en') { return $text; }
+    $loc = json_decode((string)@file_get_contents(dirname(__DIR__) . '/Boersenpreis/locale.json'), true);
+    return (string)($loc['translations'][$lang][$text] ?? $text);
+}
+function form(SpotTest $m): array { $f = json_decode($m->GetConfigurationForm(), true); if (!is_array($f)) { throw new RuntimeException('GetConfigurationForm() liefert kein gültiges JSON'); } return konsoleUebersetzt($f); }
+/** Formular so, wie das Modul es ausliefert — ohne die Übersetzung der Konsole. */
+function formRoh(SpotTest $m): array { return json_decode($m->GetConfigurationForm(), true); }
 /** Formular als Text; Zeilenumbrüche aus dem Label-Umbruch werden wieder zu Leerzeichen (Inhaltsprüfungen). */
 function formText(array $f): string { return str_replace('\n', ' ', json_encode($f, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); }
 function fresh(int $source = 0, string $zone = 'DE-LU'): SpotTest
@@ -1196,6 +1221,94 @@ check('Rückblick trägt denselben Vertrag (1.2, price), aber kein erfundenes up
     && !array_key_exists('updatedAt', $hist[0]) && $hist[0]['quelle'] === 'archiv');
 $GLOBALS['ARCHIVES'] = []; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = [];
 $GLOBALS['REQUESTS'] = [];
+
+// ---------------------------------------------------------------------------
+heading('33. Store-Review 25/27 — die Konsole übersetzt das Formular, Geschwister-Abgleich nicht in ApplyChanges');
+$code33 = file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.php');
+check('Checkliste 25: kein $this->t() auf einem festen caption/label-Wert',
+    preg_match_all("/'(?:caption|label)' => \\\$this->t\\('(?:[^'\\\\\\\\]|\\\\\\\\.)*'\\)\\s*[,\\]]/", $code33, $m33) === 0,
+    implode(' | ', array_slice($m33[0] ?? [], 0, 3)));
+check('Checkliste 27: ApplyChanges ruft den Geschwister-Abgleich nicht auf',
+    preg_match('/function ApplyChanges\(\).*?\n    \}/s', $code33, $a33) === 1
+    && !str_contains($a33[0], 'adoptDismissFromSibling'));
+check('… GetConfigurationForm holt ihn nach',
+    preg_match('/function GetConfigurationForm\(\).*?adoptDismissFromSibling\(\)/s', $code33) === 1);
+
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = []; $GLOBALS['REQUESTS'] = []; $GLOBALS['HTTP'] = [];
+$k33 = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$k33->ApplyChanges();
+// Nur Beschriftungen prüfen: Listen-WERTE (Panel-Namen) sind weiterhin deutsch, die übersetzt
+// die Konsole nicht (siehe unten).
+$besch33 = function (array $el) use (&$besch33): array {
+    $out = [];
+    foreach ($el as $k => $v) {
+        if (is_array($v)) { $out = array_merge($out, $besch33($v)); }
+        elseif (in_array($k, ['caption', 'label'], true) && is_string($v)) { $out[] = $v; }
+    }
+    return $out;
+};
+// Feste Beschriftungen gehen englisch raus; was das Modul selbst übersetzt (Texte mit Werten,
+// „Was ist Neu“-Zeilen, Quellennennung) bleibt deutsch — das ist gewollt.
+$roh33 = $besch33(formRoh($k33));
+$fest33 = array_map(fn($e) => (string)($e['caption'] ?? ''), formRoh($k33)['elements']);
+// „🪟 Formular: Aufbau (1 ausgeblendet)" ist ein zusammengesetzter Text mit Wert — den muss das
+// Modul selbst übersetzen, die Konsole kann das nicht (deshalb hier ausgenommen).
+$deutsch33 = array_values(array_filter($fest33, fn($t) => preg_match('/Datenquelle|Börsenpreise|Tarif|Rückmeldung/u', $t) === 1));
+check('Panel-Überschriften gehen englisch raus, auch bei deutscher Konsole',
+    count(array_filter($fest33, fn($t) => str_contains($t, 'Data source'))) === 1
+    && count(array_filter($fest33, fn($t) => str_contains($t, 'Exchange prices'))) === 1
+    && $deutsch33 === [], implode(' | ', array_slice($deutsch33, 0, 3)));
+check('… ebenso die festen Knopf- und Feldbeschriftungen',
+    count(array_filter($roh33, fn($t) => $t === '🔄 Fetch prices now')) === 1
+    && count(array_filter($roh33, fn($t) => preg_match('/^(Preise jetzt abrufen|Datenquelle)$/u', $t) === 1)) === 0);
+check('Die Konsole macht daraus Deutsch (locale.json)',
+    str_contains(formText(form($k33)), 'Datenquelle') && str_contains(formText(form($k33)), 'Börsenpreise'));
+$GLOBALS['TRANSLATE_CALLS'] = 0;
+formRoh($k33);
+check('Formularaufbau übersetzt nur noch wenige Texte (vorher über 160)', $GLOBALS['TRANSLATE_CALLS'] <= 70, 'Aufrufe: ' . $GLOBALS['TRANSLATE_CALLS']);
+
+// Werte in Listen übersetzt das Modul selbst — die Konsole übersetzt nur Beschriftungen
+$liste33 = null;
+foreach (form($k33)['elements'] as $el33) {
+    foreach ($el33['items'] ?? [] as $it33) {
+        if (($it33['name'] ?? '') === 'FormLayout') { $liste33 = $it33; }
+    }
+}
+check('Panel-Namen in der Aufbau-Liste sind deutsch (Werte, keine Beschriftungen)',
+    $liste33 !== null && count(array_filter(array_column($liste33['values'] ?? [], 'Panel'),
+        fn($p) => preg_match('/Datenquelle|Börsenpreise|Tarif/u', (string)$p) === 1)) === count($liste33['values'] ?? []),
+    implode(' | ', array_column($liste33['values'] ?? [], 'Panel')));
+
+// 27 am Verhalten: neue Instanz übernimmt den Stand erst beim Öffnen des Formulars
+$G33 = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
+$GLOBALS['VARS'] = []; $GLOBALS['SPOT_OBJ'] = [];
+$mk33 = function (int $id) {
+    $o = new SpotTest(); $o->InstanceID = $id; $o->Create();
+    $o->props['Source'] = 0; $o->props['BiddingZone'] = 'DE-LU';
+    $GLOBALS['SPOT_OBJ'][$id] = $o;
+    return $o;
+};
+$alt33 = $mk33(33001);
+$GLOBALS['INSTANCES'][$G33] = [33001];
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json')); $alt33->ApplyChanges();
+$alt33->AckPurposeIntro();
+$neu33 = $mk33(33002);
+$GLOBALS['INSTANCES'][$G33] = [33001, 33002];
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$neu33->ApplyChanges();
+check('ApplyChanges fragt die Geschwister nicht (Abgleich noch offen)',
+    $neu33->attrs['DismissAdopted'] === false && $neu33->attrs['PurposeIntroGone'] === false);
+$sicht33 = fn(SpotTest $o) => array_filter(array_map(fn($e) => ($e['visible'] ?? true) === false ? '' : ($e['name'] ?? ''), form($o)['elements']));
+$panels33 = $sicht33($neu33);
+check('Beim Öffnen des Formulars übernimmt die neue Instanz den Stand',
+    $neu33->attrs['DismissAdopted'] === true && $neu33->attrs['PurposeIntroGone'] === true
+    && !in_array('PurposeIntroPanel', $panels33, true));
+$GLOBALS['ADOPT_CALLS'] = 0;
+form($neu33); form($neu33);
+check('… und fragt danach nie wieder (einmalig, kein Aufruf je Formularaufbau)', $GLOBALS['ADOPT_CALLS'] === 0, (string)$GLOBALS['ADOPT_CALLS']);
+$GLOBALS['INSTANCES'] = []; $GLOBALS['SPOT_OBJ'] = []; $GLOBALS['REQUESTS'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {

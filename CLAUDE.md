@@ -62,7 +62,10 @@ erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
     Beschriftung ≤ 26 Zeichen (sie steht IM Feld), Erklärung als Label. Kein negatives
     `minimum` bei NumberSpinnern (Konsole zeigte für 0 das Minimum an). „Wozu dieses Modul?“
     bleibt unsichtbar im Formular, Knopf im Doku-Panel blendet es wieder ein; Ausblenden über
-    Instanzen geteilt (`GetDismissState`/`AdoptDismissState`, gibt selbst nie weiter).
+    Instanzen geteilt (`GetDismissState`/`AdoptDismissState`, gibt selbst nie weiter). Das
+    einmalige Übernehmen von einer Geschwister-Instanz läuft in `GetConfigurationForm()`, **nie in
+    `ApplyChanges()`** (Store-Review-Checkliste 27, Fund aus Tessie 2.38.3: beim Neuladen der
+    Module sind die Geschwister dort noch nicht zwingend geladen).
 
 ## Quellen (Stand 13.09.2026, selbst geprüft)
 
@@ -131,6 +134,15 @@ Formularaufbau (Stolperstein 24, Sprachcache `istDeutsch` wird in `GetConfigurat
 zurückgesetzt). Kennungen (Idents, Properties, Funktionsnamen, Vertragsfelder) bleiben IMMER
 unverändert. Prüfstand Block 31 prüft beide Sprachen; alle übrigen Blöcke laufen gegen die
 deutschen Texte (Harness-`Translate()` liest die echte locale.json, `$GLOBALS['LOCALE']`).
+
+**Seit 0.11.0 (Store-Review-Checkliste 25):** Feste Beschriftungen (`caption`/`label` von Panels,
+Feldern, Knöpfen) stehen **englisch und ohne `t()`** im Formular — die Konsole übersetzt sie selbst
+über `locale.json`. Selbst übersetzt wird nur, was die Konsole nicht erreicht: **Werte** in Listen
+(z. B. die Panel-Namen in „Formular: Aufbau"), Rückgaben von `onClick` (echo/Popup),
+Variablennamen/Profile und **zusammengesetzte** Texte mit Zahlen oder Zeitpunkten. Faustregel: ein
+fester Satz → Literal; ein Satz mit Wert → `t()` mit sprintf-Argumenten. Prüfstand Block 33 wacht
+darüber (Regex auf den Quelltext + Gegenprobe am ausgelieferten JSON), und `form()` im Prüfstand
+bildet die Konsolenübersetzung nach, damit die übrigen Blöcke weiter den angezeigten Text sehen.
 
 ## Prüfen
 

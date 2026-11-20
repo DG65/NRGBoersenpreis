@@ -14,6 +14,17 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
   Felder bleiben unverändert, Hauptversion weiterhin 1.
 - README (deutsch und englisch) verweist für fremde Preismodule auf die gemeinsame Anleitung
   `EIGENES_PREISMODUL.md` im Tibber-Repo; eine eigene Anleitung gibt es bewusst nicht.
+- **Das Formular übersetzt sich nicht mehr selbst** (Store-Review-Checkliste 25): feste
+  Beschriftungen von Panels, Feldern und Knöpfen stehen jetzt englisch im ausgelieferten Formular,
+  die Übersetzung macht die Konsole über `locale.json` — so wie Symcon es vorsieht. Selbst übersetzt
+  werden nur noch Texte, die die Konsole nicht erreichen kann: Werte in Listen, Rückmeldungen von
+  Knöpfen, Variablennamen und Sätze, in denen Zahlen oder Zeitpunkte stecken. Nebeneffekt: ein
+  Formularaufbau fragt nur noch 47 statt 150 Übersetzungen ab.
+- **Abgleich mit den Geschwister-Instanzen erst beim Öffnen des Formulars** (Checkliste 27, Fund aus
+  dem Store-Review von NRG-Stack Tessie 2.38.3): Das einmalige Übernehmen des Ausblende-Zustands lag
+  bisher in `ApplyChanges()`. Beim Neuladen der Module sind die anderen Instanzen dort aber
+  möglicherweise noch nicht geladen; jetzt passiert es in `GetConfigurationForm()` — also genau dann,
+  wenn das Ergebnis gebraucht wird.
 
 ## [0.10.0] - 2026-11-05
 
