@@ -21,13 +21,16 @@
 //   SPOT_GetPriceCurve() liest nur den Zwischenspeicher — kein Abruf pro
 //   Aufruf (einzige Ausnahme: leerer Speicher, gedrosselt, wie bei Tibber).
 //
-// VERTRAG (contractVersion 1.1, gleiches Format wie TIBBERGR_GetPriceCurve):
+// VERTRAG (contractVersion 1.2, gleiches Format wie TIBBERGR_GetPriceCurve):
 //   Liste aufsteigend nach 'start', je Slot:
 //   start (Unix, inkl.), end (Unix, EXKLUSIV), price (ct/kWh NETTO, reiner
 //   Börsenpreis ohne Steuern/Umlagen/Netzentgelt, negativ erlaubt),
 //   basis='spot', netzentgelt='fehlt', level=null (Einstufung macht der
 //   Konsument), quelle, aufloesung (Sekunden je Originalwert: 900 oder 3600),
-//   contractVersion. Lücken sind zulässig, fehlende Werte werden NIE als 0
+//   contractVersion, contractType='price' (Fremdanbindung: Konsumenten finden
+//   den Vertrag ohne Kenntnis der Modul-GUID) und optional updatedAt (Unix,
+//   wann die Kurve zuletzt geholt wurde; im Archiv-Rückblick nicht vorhanden).
+//   Lücken sind zulässig, fehlende Werte werden NIE als 0
 //   geliefert (SUITE.md Stolperstein 15).
 //   SPOT_GetPriceHistory($id, $from, $to) (seit 1.1): dieselben Slots für einen
 //   beliebigen Zeitraum; Vergangenheit aus dem Archiv von „Börsenpreis jetzt"
@@ -46,8 +49,10 @@ class Boersenpreis extends IPSModule
     private const MODULE_GUID  = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
 
     // 1.0 GetPriceCurve; 1.1 + GetPriceHistory() (gleiches Slot-Format, quelle 'archiv' für
-    // aus dem Archiv rekonstruierte Viertelstunden) — rein additiv, gilt für beide Funktionen.
-    private const CONTRACT_PRICECURVE = '1.1';
+    // aus dem Archiv rekonstruierte Viertelstunden); 1.2 + contractType/updatedAt (Fremdanbindung,
+    // SUITE.md 1/5f) — rein additiv, gilt für beide Funktionen.
+    private const CONTRACT_PRICECURVE  = '1.2';
+    private const CONTRACT_TYPE_PRICE  = 'price';
 
     // Symcon-Kernmodul Archive Control (im Verbund 38× verwendet, u. a. EMS/Dashboard).
     private const ARCHIVE_GUID      = '{43192F0B-135B-4CE7-A0A7-1475603F3060}';
@@ -290,7 +295,7 @@ class Boersenpreis extends IPSModule
             if ((int)$s['end'] <= $todayStart) {
                 continue; // gestern — gehört nicht mehr zu "heute + morgen"
             }
-            $out[] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res']);
+            $out[] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res'], (int)($cache['fetchedAt'] ?? 0));
         }
         return $out;
     }
@@ -319,7 +324,7 @@ class Boersenpreis extends IPSModule
         $quelle = $this->cacheQuelle($cache);
         foreach ($cache['slots'] ?? [] as $s) {
             if ($s['start'] >= $from && $s['start'] < $to) {
-                $slots[(int)$s['start']] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res']);
+                $slots[(int)$s['start']] = $this->contractSlot((int)$s['start'], (int)$s['end'], (float)$s['price'], $quelle, (int)$s['res'], (int)($cache['fetchedAt'] ?? 0));
             }
         }
         ksort($slots);
@@ -998,9 +1003,16 @@ class Boersenpreis extends IPSModule
         return $out;
     }
 
-    private function contractSlot(int $start, int $end, float $price, string $quelle, int $res): array
+    /**
+     * Ein Vertragseintrag. `contractVersion` und `contractType` stehen bewusst JE EINTRAG, nicht
+     * oben: Die Funktion liefert eine Liste, ein Schlüssel auf oberster Ebene bräche die Iteration
+     * (SUITE.md „Fremdanbindung“ 1/5f, Anleitung NRGTibberGridRewards/EIGENES_PREISMODUL.md).
+     * `updatedAt` ist optional und steht nur dort, wo der Abrufzeitpunkt bekannt ist — im Rückblick
+     * aus dem Archiv gibt es ihn nicht, dann bleibt das Feld weg statt erfunden zu werden.
+     */
+    private function contractSlot(int $start, int $end, float $price, string $quelle, int $res, int $updatedAt = 0): array
     {
-        return [
+        $slot = [
             'start'           => $start,
             'end'             => $end,
             'price'           => $price,
@@ -1009,8 +1021,15 @@ class Boersenpreis extends IPSModule
             'level'           => null,
             'quelle'          => $quelle,
             'aufloesung'      => $res,
-            'contractVersion' => self::CONTRACT_PRICECURVE,
+            // Literal, nicht nur die Konstante: der Migrationsvergleich liest die Hauptversion
+            // am Text 'contractVersion' => '1.x' (Hinweis EMS 20.11.2026).
+            'contractVersion' => '1.2',
+            'contractType'    => self::CONTRACT_TYPE_PRICE,
         ];
+        if ($updatedAt > 0) {
+            $slot['updatedAt'] = $updatedAt;
+        }
+        return $slot;
     }
 
     private function cacheQuelle(array $cache): string

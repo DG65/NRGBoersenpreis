@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis (exchange price)
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModule-blue)
-![Module version](https://img.shields.io/badge/Module_version-0.10.0-blue)
+![Module version](https://img.shields.io/badge/Module_version-0.11.0-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml)
@@ -94,14 +94,20 @@ archiving on once and never off again.
 ## Contract for scripts and other modules
 
 ```php
-$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
+$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.2'
 // [[ 'start' => int (unix, inclusive), 'end' => int (unix, EXCLUSIVE),
 //    'price' => float ct/kWh NET (plain exchange price, may be negative),
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
 //    'quelle' => 'energy-charts'|'entsoe'|'tibber'|'awattar',
 //    'aufloesung' => 900|3600,          // seconds per original value
-//    'contractVersion' => '1.1' ], …]
+//    'contractVersion' => '1.2', 'contractType' => 'price',
+//    'updatedAt' => int ], …]          // optional: last fetch (absent in the archive look back)
 ```
+
+**Connecting your own price module:** the `price` contract is not limited to this module — any price
+source can hook in with a single function and is then found by the NRG-Stack EMS, for example. The
+shared guide lives in the Tibber repository:
+[EIGENES_PREISMODUL.md](https://github.com/DG65/NRGTibberGridRewards/blob/main/EIGENES_PREISMODUL.md).
 
 - Ascending by `start`, today + tomorrow (once published), quarter-hour grid.
 - Same format as `TIBBERGR_GetPriceCurve` — a consumer treats both sources alike and tells them

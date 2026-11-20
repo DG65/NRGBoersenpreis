@@ -1,7 +1,7 @@
 # NRG-Stack Börsenpreis
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-0.10.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-0.11.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGBoersenpreis/actions/workflows/check-style.yml)
@@ -96,14 +96,20 @@ Archivierung dann einmalig ein und nie wieder ab.
 ## Vertrag für Skripte und andere Module
 
 ```php
-$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.1'
+$curve = SPOT_GetPriceCurve($id);   // contractVersion '1.2'
 // [[ 'start' => int (Unix, inkl.), 'end' => int (Unix, EXKLUSIV),
 //    'price' => float ct/kWh NETTO (reiner Börsenpreis, negativ möglich),
 //    'basis' => 'spot', 'netzentgelt' => 'fehlt', 'level' => null,
 //    'quelle' => 'energy-charts'|'entsoe'|'tibber'|'awattar',
 //    'aufloesung' => 900|3600,          // Sekunden je Originalwert
-//    'contractVersion' => '1.1' ], …]
+//    'contractVersion' => '1.2', 'contractType' => 'price',
+//    'updatedAt' => int ], …]          // optional: letzter Abruf (im Archiv-Rückblick nicht dabei)
 ```
+
+**Eigenes Preismodul anbinden:** Der `price`-Vertrag ist nicht auf dieses Modul beschränkt — jede
+Preisquelle kann sich mit einer einzigen Funktion einhängen und wird dann z. B. vom NRG-Stack EMS
+gefunden. Die gemeinsame Anleitung steht im Tibber-Repo:
+[EIGENES_PREISMODUL.md](https://github.com/DG65/NRGTibberGridRewards/blob/main/EIGENES_PREISMODUL.md).
 
 - Liste aufsteigend nach `start`, heute + morgen (sobald veröffentlicht), Viertelstunden-Raster.
 - Gleiches Format wie `TIBBERGR_GetPriceCurve` — ein Konsument behandelt beide Quellen gleich

@@ -3,6 +3,18 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.11.0] - 2026-11-20
+
+### Changed
+- **Preis-Vertrag 1.2 für die Fremdanbindung** (SUITE.md „Fremdanbindung: Module anderer Autoren“,
+  Punkte 1/5b/5f): `SPOT_GetPriceCurve()` und `SPOT_GetPriceHistory()` liefern je Eintrag zusätzlich
+  `contractType` = `'price'`; damit findet ein Konsument wie das NRG-Stack EMS die Preisquelle, ohne
+  die Modul-GUID zu kennen. Optional kommt `updatedAt` (Unix, letzter Abruf) dazu — im Rückblick aus
+  dem Archiv fehlt es bewusst, statt einen Zeitpunkt zu erfinden. Rein additiv: alle bisherigen
+  Felder bleiben unverändert, Hauptversion weiterhin 1.
+- README (deutsch und englisch) verweist für fremde Preismodule auf die gemeinsame Anleitung
+  `EIGENES_PREISMODUL.md` im Tibber-Repo; eine eigene Anleitung gibt es bewusst nicht.
+
 ## [0.10.0] - 2026-11-05
 
 ### Added

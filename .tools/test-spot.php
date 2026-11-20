@@ -260,8 +260,10 @@ heading('2. Vertrag SPOT_GetPriceCurve');
 $c = $m->GetPriceCurve();
 check('96 Viertelstunden, kein weiterer Abruf (liest nur den Speicher)', count($c) === 96 && count($GLOBALS['REQUESTS']) === 1, count($c) . ' / ' . count($GLOBALS['REQUESTS']));
 $e = $c[0];
-check('Felder exakt: start/end/price/basis/netzentgelt/level/quelle/aufloesung/contractVersion', array_keys($e) === ['start', 'end', 'price', 'basis', 'netzentgelt', 'level', 'quelle', 'aufloesung', 'contractVersion'], implode(',', array_keys($e)));
-check('Typen: int/int/float/string/string/null/string/int/string', is_int($e['start']) && is_int($e['end']) && is_float($e['price']) && $e['level'] === null && is_int($e['aufloesung']) && $e['contractVersion'] === '1.1');
+check('Felder exakt: start/end/price/basis/netzentgelt/level/quelle/aufloesung/contractVersion/contractType (+updatedAt)', array_keys($e) === ['start', 'end', 'price', 'basis', 'netzentgelt', 'level', 'quelle', 'aufloesung', 'contractVersion', 'contractType', 'updatedAt'], implode(',', array_keys($e)));
+check('Fremdanbindung: contractType „price" in JEDEM Eintrag, Vertrag 1.2 (SUITE.md 1/5f)', count(array_filter($c, fn($x) => ($x['contractType'] ?? '') === 'price' && ($x['contractVersion'] ?? '') === '1.2')) === count($c));
+check('updatedAt = Zeitpunkt des letzten Abrufs (optionale Frischemarke)', $e['updatedAt'] === ts('2026-09-12 10:00:00'));
+check('Typen: int/int/float/string/string/null/string/int/string', is_int($e['start']) && is_int($e['end']) && is_float($e['price']) && $e['level'] === null && is_int($e['aufloesung']) && $e['contractVersion'] === '1.2');
 check('basis=spot, netzentgelt=fehlt, quelle=energy-charts, aufloesung=900', $e['basis'] === 'spot' && $e['netzentgelt'] === 'fehlt' && $e['quelle'] === 'energy-charts' && $e['aufloesung'] === 900);
 check('Beginnt 00:00, lückenlos, end EXKLUSIV = start des nächsten', $c[0]['start'] === ts('2026-09-12 00:00:00') && contiguous($c) && end($c)['end'] === ts('2026-09-13 00:00:00'));
 check('Preis exakt EUR/MWh ÷ 10', abs($c[40]['price'] - $ec['price'][40] / 10) < 1e-9);
@@ -589,7 +591,7 @@ check('Archiv hält nur die Wertänderungen des Tages (' . $changes . ')', count
 clock('2026-05-02 10:00:00');
 $m->attrs['PriceCache'] = '{}'; // Zwischenspeicher weg → nur noch das Archiv kennt den 01.05.
 $h = $m->GetPriceHistory(ts('2026-05-01 00:00:00'), ts('2026-05-02 00:00:00'));
-check('Verlauf 01.05.: 96 Viertelstunden, quelle archiv, aufloesung 900, lückenlos, Vertrag 1.1', count($h) === 96 && $h[0]['quelle'] === 'archiv' && $h[0]['aufloesung'] === 900 && contiguous($h) && $h[0]['contractVersion'] === '1.1', (string)count($h));
+check('Verlauf 01.05.: 96 Viertelstunden, quelle archiv, aufloesung 900, lückenlos, Vertrag 1.2', count($h) === 96 && $h[0]['quelle'] === 'archiv' && $h[0]['aufloesung'] === 900 && contiguous($h) && $h[0]['contractVersion'] === '1.2', (string)count($h));
 $exact = count($h) === 96;
 foreach ($h as $i => $s) { if (abs($s['price'] - $ecNeg['price'][$i] / 10) > 1e-9) { $exact = false; } }
 check('Jede Viertelstunde exakt der Börsenpreis (Stufenverlauf stellt gleiche Folgewerte wieder her)', $exact);
@@ -1165,6 +1167,34 @@ check('Zahlen englisch mit Punkt, deutsch mit Komma', preg_match('/\d+\.\d\d ct\
 $GLOBALS['TRANSLATE_CALLS'] = 0;
 $en->Tick();
 check('Tick übersetzt höchstens 20 Texte (kein Translate-Sturm je Durchlauf)', $GLOBALS['TRANSLATE_CALLS'] <= 20, (string)$GLOBALS['TRANSLATE_CALLS']);
+$GLOBALS['REQUESTS'] = [];
+
+heading('32. Fremdanbindung: price-Vertrag 1.2 (SUITE.md „Fremdanbindung“ 1/5b/5f, 20.11.2026)');
+clock('2026-09-12 10:00:00');
+$GLOBALS['VARS'] = [];
+$GLOBALS['REQUESTS'] = []; $GLOBALS['HTTP'] = [];
+$fa = fresh();
+$GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
+$fa->ApplyChanges();
+$curve = $fa->GetPriceCurve();
+$kern = ['start', 'end', 'price', 'basis', 'netzentgelt', 'level', 'contractVersion', 'contractType'];
+check('Gemeinsamer Preis-Kern in jedem Eintrag vorhanden', count(array_filter($curve, fn($s) => count(array_diff($kern, array_keys($s))) === 0)) === count($curve));
+check('contractType „price", Vertrag 1.2, Major unverändert 1', $curve[0]['contractType'] === 'price' && $curve[0]['contractVersion'] === '1.2'
+    && (int)explode('.', $curve[0]['contractVersion'])[0] === 1);
+check('Nichts erfunden: level bleibt null, netzentgelt „fehlt", basis „spot"', $curve[0]['level'] === null && $curve[0]['netzentgelt'] === 'fehlt' && $curve[0]['basis'] === 'spot');
+check('Kein Feld auf oberster Ebene (Liste bleibt iterierbar)', array_keys($curve) === range(0, count($curve) - 1));
+// Rückblick aus dem Archiv: dort ist der Abrufzeitpunkt unbekannt → updatedAt fehlt, statt geraten zu werden
+$GLOBALS['ARCHIVES'] = [99]; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = [];
+$vidFa = IPS_GetObjectIDByIdent('CurrentPrice', $fa->InstanceID);
+$GLOBALS['AC_LOG'][$vidFa] = true;
+for ($t = ts('2026-09-10 00:00:00'); $t < ts('2026-09-11 00:00:00'); $t += 900) {
+    $GLOBALS['AC'][$vidFa][] = ['TimeStamp' => $t, 'Value' => 10.0 + ($t % 7)];
+}
+$hist = $fa->GetPriceHistory(ts('2026-09-10 00:00:00'), ts('2026-09-11 00:00:00'));
+check('Rückblick trägt denselben Vertrag (1.2, price), aber kein erfundenes updatedAt', count($hist) > 0
+    && $hist[0]['contractType'] === 'price' && $hist[0]['contractVersion'] === '1.2'
+    && !array_key_exists('updatedAt', $hist[0]) && $hist[0]['quelle'] === 'archiv');
+$GLOBALS['ARCHIVES'] = []; $GLOBALS['AC'] = []; $GLOBALS['AC_LOG'] = [];
 $GLOBALS['REQUESTS'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
