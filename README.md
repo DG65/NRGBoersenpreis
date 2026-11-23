@@ -88,6 +88,12 @@ ihr Wochentag.
 | `TomorrowAvailable` | Preise für morgen veröffentlicht | Bool (Ja/Nein) |
 | `MarketData` | Marktdaten (Energie Manager) | String, JSON `[{start, end, price}]` — Endpreis für den Symcon Energie Manager, siehe oben |
 
+Die Variablen tragen seit 0.12.0 eine **Symcon-Darstellung** statt eigener Profile: „Börsenpreis
+jetzt" eine Wertanzeige mit ct/kWh und zwei Nachkommastellen, die beiden Ja/Nein-Anzeigen eine
+Wertanzeige mit den Optionen Ja und Nein. Wer selbst eine Darstellung einstellt, behält sie — das
+Modul überschreibt nur seine eigene. Die früheren Profile `SPOT.CentKWh` und `SPOT.YesNo` werden
+**nicht gelöscht**: eigene Skripte, die darauf verweisen, laufen weiter.
+
 Der Rückblick (`SPOT_GetPriceHistory`, Diagramm vergangener Tage im NRG-Stack Dashboard) kommt
 aus dem Archiv von „Börsenpreis jetzt". Archiviert wird nur, wenn der Haken **„Preisverlauf
 archivieren"** im Panel „Börsenpreise" gesetzt ist (Vorgabe: aus); das Modul schaltet die

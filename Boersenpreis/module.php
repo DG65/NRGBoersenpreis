@@ -88,6 +88,13 @@ class Boersenpreis extends IPSModule
         '0.10.0' => [
             'The module now speaks German and English: form, messages, variable names and status lines follow the Symcon language setting (option „Locale“). Numbers and dates follow the language as well. German stays the reference wording.',
         ],
+        '0.11.0' => [
+            'The configuration form now opens about five times faster, because Symcon translates the fixed labels itself instead of the module doing it.',
+            'For your own scripts: SPOT_GetPriceCurve() and SPOT_GetPriceHistory() deliver two more fields per quarter hour - "contractType" (always "price", so other modules recognise the price source) and "updatedAt" (time of the last fetch; it is absent in the archive look-back, where that time is unknown). Nothing was removed or renamed.',
+        ],
+        '0.12.0' => [
+            'The variables "Exchange price now", "Negative exchange price now" and "Prices for tomorrow published" now use a Symcon presentation instead of the module\'s own profiles SPOT.CentKWh and SPOT.YesNo. It looks the same - ct/kWh with two decimals, Yes/No - but follows the Symcon standard. A presentation you set yourself stays untouched. The two old profiles are kept, not deleted: scripts that reference them keep working.',
+        ],
     ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die
@@ -236,11 +243,13 @@ class Boersenpreis extends IPSModule
             return;
         }
 
-        $this->ensureProfiles();
-        $this->MaintainVariable('CurrentPrice', $this->t('Exchange price now'), VARIABLETYPE_FLOAT, 'SPOT.CentKWh', 1, true);
-        $this->MaintainVariable('NegativeNow', $this->t('Negative exchange price now'), VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 2, true);
+        // Darstellungen statt eigener Profile (SUITE.md "Darstellungen und Vorlagen statt eigener
+        // Profile", verbindlich 23.11.2026). Eine vom NUTZER gesetzte Darstellung liegt in
+        // VariableCustomPresentation und gewinnt - MaintainVariable schreibt nur die des Moduls.
+        $this->MaintainVariable('CurrentPrice', $this->t('Exchange price now'), VARIABLETYPE_FLOAT, $this->presentationPrice(), 1, true);
+        $this->MaintainVariable('NegativeNow', $this->t('Negative exchange price now'), VARIABLETYPE_BOOLEAN, $this->presentationYesNo(), 2, true);
         $this->MaintainVariable('NextNegativeStart', $this->t('Next negative quarter hour'), VARIABLETYPE_INTEGER, '~UnixTimestamp', 3, true);
-        $this->MaintainVariable('TomorrowAvailable', $this->t('Prices for tomorrow published'), VARIABLETYPE_BOOLEAN, 'SPOT.YesNo', 4, true);
+        $this->MaintainVariable('TomorrowAvailable', $this->t('Prices for tomorrow published'), VARIABLETYPE_BOOLEAN, $this->presentationYesNo(), 4, true);
         // Format wie Symcons Modul „Strompreis“ (Ident MarketData) — der Energie Manager wählt
         // diese Variable im Feld „Energiepreise“.
         $this->MaintainVariable('MarketData', $this->t('Market data (Energy Manager)'), VARIABLETYPE_STRING, '~TextBox', 5, true);
@@ -1342,18 +1351,56 @@ class Boersenpreis extends IPSModule
         }
     }
 
-    private function ensureProfiles(): void
+    /**
+     * Darstellung "Boersenpreis jetzt": Wertanzeige mit Suffix ct/kWh.
+     *
+     * Seit 0.12.0 statt des eigenen Profils SPOT.CentKWh (SUITE.md "Darstellungen und Vorlagen
+     * statt eigener Profile"). Fuer ct/kWh gibt es KEINE passende Symcon-Vorlage - die 81
+     * VARIABLE_TEMPLATE_* auf Symcon 9.1 kennen Leistung, Energie, Prozent, Temperatur ..., aber
+     * keinen Preis. Also Wertanzeige mit eigenen Parametern (Regel 2).
+     *
+     * MIN/MAX werden ausdruecklich gesetzt: Symcon fuellt sie sonst mit 0 bis 100 vor, und der
+     * Boersenpreis wird NEGATIV (bis etwa -50 ct/kWh) wie auch sehr hoch (technische Preisgrenze
+     * der Boerse rund +400 ct/kWh). Eine Vorschau, die bei 0 abschneidet, wuerde gerade das
+     * verbergen, worum es in diesem Modul geht.
+     */
+    private function presentationPrice(): array
     {
-        if (!IPS_VariableProfileExists('SPOT.CentKWh')) {
-            IPS_CreateVariableProfile('SPOT.CentKWh', VARIABLETYPE_FLOAT);
-            IPS_SetVariableProfileDigits('SPOT.CentKWh', 2);
-            IPS_SetVariableProfileText('SPOT.CentKWh', '', ' ct/kWh');
-        }
-        if (!IPS_VariableProfileExists('SPOT.YesNo')) {
-            IPS_CreateVariableProfile('SPOT.YesNo', VARIABLETYPE_BOOLEAN);
-            IPS_SetVariableProfileAssociation('SPOT.YesNo', 0, $this->t('No'), '', -1);
-            IPS_SetVariableProfileAssociation('SPOT.YesNo', 1, $this->t('Yes'), '', -1);
-        }
+        return [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'SUFFIX'       => ' ct/kWh',
+            'DIGITS'       => 2,
+            'MIN'          => -100,
+            'MAX'          => 500,
+        ];
+    }
+
+    /**
+     * Darstellung fuer die beiden Ja/Nein-Anzeigen (negativ jetzt, Preise fuer morgen da).
+     *
+     * Ebenfalls ohne passende Vorlage: "Fenster"/"Tuer"/"Alarm" tragen eine andere Bedeutung als
+     * ein schlichtes Ja/Nein, und beide Variablen sind reine Anzeigen, keine Schalter - deshalb
+     * Wertanzeige mit OPTIONS und nicht die Aufzaehlung (die zeichnet Auswahlknoepfe).
+     *
+     * Zweiter Grund fuer die Wertanzeige: Eine Aufzaehlung ohne EnableAction ist nicht bearbeitbar
+     * und nicht archivierbar (Verbund-Fund RoboHub 0.19.4, Live-Fund eines Forum-Nutzers).
+     *
+     * FARBE BLEIBT WEG. Die Farbfelder einer Option heissen in der Wertanzeige
+     * `ColorActive`/`ColorValue`, in der Aufzaehlung dagegen `Color` - Web und Konsole schlucken
+     * den falschen Schluessel stillschweigend, der Kernel speichert ihn unveraendert, und nur die
+     * Mobile-App stuerzt ab ("type 'Null' is not a subtype of type 'int'", von Symcon-Staff
+     * bestaetigt, Community-Thread 143170). Diese beiden Anzeigen brauchen keine Farbe, also
+     * setzen wir gar keinen Farbschluessel - dann kann die Falle nicht greifen.
+     */
+    private function presentationYesNo(): array
+    {
+        $option = function (bool $value, string $caption): array {
+            return ['Value' => $value, 'Caption' => $caption, 'IconActive' => false, 'IconValue' => ''];
+        };
+        return [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'OPTIONS'      => json_encode([$option(false, $this->t('No')), $option(true, $this->t('Yes'))]),
+        ];
     }
 
     // -----------------------------------------------------------------

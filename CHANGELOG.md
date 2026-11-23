@@ -3,6 +3,37 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.12.0] - 2026-11-23
+
+### Changed
+- **Darstellungen statt eigener Variablenprofile** (Verbund-Regel SUITE.md „Darstellungen und
+  Vorlagen statt eigener Profile", verbindlich seit 23.11.2026). „Börsenpreis jetzt", „Negativer
+  Börsenpreis jetzt" und „Preise für morgen veröffentlicht" nutzen jetzt eine Symcon-Darstellung
+  statt der modul-eigenen Profile `SPOT.CentKWh` und `SPOT.YesNo`. Angezeigt wird dasselbe —
+  ct/kWh mit zwei Nachkommastellen, Ja/Nein. Für Preis und Ja/Nein gibt es **keine** passende
+  Symcon-Vorlage (geprüft an allen 81 `VARIABLE_TEMPLATE_*` auf Symcon 9.1), deshalb eine
+  Wertanzeige mit eigenen Parametern.
+  - **Eine selbst gesetzte Darstellung bleibt unangetastet:** die des Nutzers liegt in
+    `VariableCustomPresentation` und gewinnt, das Modul schreibt nur `VariablePresentation`.
+  - **Die beiden alten Profile werden nicht gelöscht.** Eigene Skripte, die auf `SPOT.CentKWh`
+    oder `SPOT.YesNo` verweisen, laufen weiter; das Modul legt sie nur nicht mehr neu an.
+  - `NextNegativeStart` (`~UnixTimestamp`) und `MarketData` (`~TextBox`) hängen an
+    Symcon-Standardprofilen und bleiben unverändert.
+  - `MIN`/`MAX` der Wertanzeige werden ausdrücklich auf −100 bis 500 ct/kWh gesetzt. Symcon füllt
+    sie sonst mit 0 bis 100 vor — eine Vorschau, die bei 0 abschneidet, würde gerade die negativen
+    Preise verbergen, um die es in diesem Modul geht.
+  - Kein Farbschlüssel in den Optionen: In der Wertanzeige heißen die Farbfelder
+    `ColorActive`/`ColorValue`, in der Aufzählung `Color` — falsch gesetzt stürzt nur die
+    Mobile-App ab. Diese Anzeigen brauchen keine Farbe, also steht gar kein Farbschlüssel drin.
+  - Bewusst Wertanzeige und nicht Aufzählung: eine Aufzählung ohne `EnableAction` ist weder
+    bearbeitbar noch archivierbar (Verbund-Fund aus RoboHub 0.19.4).
+
+### Fixed
+- **„Was ist Neu" nennt wieder die installierte Version.** Die Liste `NEWS_VERSIONS` endete bei
+  0.10.0, deshalb zeigte eine Anlage mit 0.11.0 den Banner „🆕 Neu bis Version 0.10.0" (Live-Fund
+  23.11.2026). Die Einträge für 0.11.0 und 0.12.0 sind nachgetragen; der Prüfstand prüft jetzt,
+  dass die Lücke von 0.10.0 bis zur aktuellen Version wirklich angezeigt wird.
+
 ## [0.11.0] - 2026-11-20
 
 ### Changed

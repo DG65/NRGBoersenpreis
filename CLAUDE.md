@@ -17,7 +17,7 @@
 - **Konsument:** EMS (nimmt Tibber, wenn vorhanden, sonst dieses Modul — EMS-Seite baut die
   EMS-Sitzung). Abstimmung per `mcp__ccd_session_mgmt__send_message` nur mit EMS.
 
-## Vertrag `SPOT_GetPriceCurve(int $id): array` — contractVersion 1.1
+## Vertrag `SPOT_GetPriceCurve(int $id): array` — contractVersion 1.2
 
 **1.1 (0.2.0):** `SPOT_GetPriceHistory(int $id, int $from, int $to): array`, gleiche Slots,
 Vergangenheit aus dem Archiv von `CurrentPrice` (`quelle='archiv'`, Stufenverlauf, höchstens
@@ -30,7 +30,9 @@ Dietmar 13.09.2026 („über das Archiv").
 Liste aufsteigend, je Slot: `start` (inkl.), `end` (EXKLUSIV), `price` (ct/kWh netto, negativ
 erlaubt), `basis='spot'`, `netzentgelt='fehlt'`, `level=null`, `quelle`
 (`energy-charts`/`entsoe`/`tibber`/`awattar`, im Rückblick zusätzlich `archiv`), `aufloesung`
-(900/3600), `contractVersion`. Nur additiv erweitern
+(900/3600), `contractVersion`, `contractType='price'` (seit 1.2) und optional `updatedAt`
+(Unixzeit des letzten Abrufs; im Rückblick aus dem Archiv FEHLT das Feld, weil der Abrufzeitpunkt
+dort unbekannt ist — Konsumenten müssen `array_key_exists()` prüfen). Nur additiv erweitern
 (neue Felder → Minor). Keine Parameter, keine PHP-Standardwerte (Stolperstein 8/20).
 
 ## Kernmechanik — nicht verhandelbar
@@ -170,30 +172,40 @@ Lag er auf dem alten Grundgerüst-`main` ohne `library.json`, brach die Installa
 repository seems corrupted. library.json is at least missing! (Code: -32603)" ab (live bei
 Dietmar 13.09.2026). Umstellen mit `gh repo edit DG65/NRGBoersenpreis --default-branch main`.
 
-## Für das nächste Release vorgemerkt
+## Darstellungen statt eigener Profile (seit 0.12.0)
 
-**Darstellungen statt eigener Profile** (Verbund-Regel SUITE.md „Darstellungen und Vorlagen statt
-eigener Profile", verbindlich ab 23.11.2026, Hinweis der EMS-Sitzung). Das Modul legt zwei eigene
-Profile an (`ensureProfiles()`): `SPOT.CentKWh` (float, 2 Stellen, Suffix ` ct/kWh`) und
-`SPOT.YesNo` (bool, Ja/Nein). Beide haben **keine** passende Symcon-Vorlage (`VARIABLE_TEMPLATE_*`)
-— ct/kWh ist in der Vorlagenliste nicht vorgesehen, und „Fenster"/„Tür" tragen eine andere
-Bedeutung als ein schlichtes Ja/Nein. Also nach Regel 2: Darstellung mit eigenen Parametern
-(Wertanzeige mit SUFFIX bzw. Aufzählung), kein Profil. Betroffen sind `CurrentPrice`,
-`NegativeNow`, `TomorrowAvailable`; `NextNegativeStart` (`~UnixTimestamp`) und `MarketData`
-(`~TextBox`) nutzen Symcon-Standardprofile und bleiben vorerst. Beim Umbau beachten:
-- **Nutzer-eigene Darstellungen gehen vor und bleiben** — `MaintainVariable` benennt auch nie um.
-- `SPOT.*`-Profile **nicht löschen**, solange Variablen sie nutzen (fremde Skripte).
-- Umstellung im Release-Text erwähnen (Skripte, die auf die Profilnamen zeigen).
-- Vorher/Nachher-Vergleich: Migrationsvergleich nach dem Commit.
-- Falle laut SUITE.md: `IPS_GetVariablePresentation()` lässt `TEMPLATE` weg (dafür
-  `IPS_GetVariable($id)['VariablePresentation']['TEMPLATE']`); nur `TEMPLATE` ohne `PRESENTATION`
-  lehnt `IPS_SetVariableCustomPresentation` ab; seit 9.1 werden Darstellungsparameter validiert.
-- Die Symcon-API zuerst an der Doku gegenprüfen, nicht aus der Analogie annehmen.
+Verbund-Regel SUITE.md „Darstellungen und Vorlagen statt eigener Profile" (verbindlich
+23.11.2026). Die eigenen Profile `SPOT.CentKWh`/`SPOT.YesNo` werden **nicht mehr angelegt**;
+`CurrentPrice`, `NegativeNow` und `TomorrowAvailable` bekommen über `MaintainVariable` eine
+Darstellung (`presentationPrice()` / `presentationYesNo()`). `NextNegativeStart`
+(`~UnixTimestamp`) und `MarketData` (`~TextBox`) bleiben an Symcon-Standardprofilen.
 
-**`NEWS_VERSIONS` fehlt der Eintrag für 0.11.0** (Live-Fund 23.11.2026): Auf einer Anlage mit
-0.11.0 zeigt der Banner „🆕 Neu bis Version 0.10.0", weil die Liste bei `'0.10.0'` endet. Beim
-nächsten Release den Eintrag für 0.11.0 nachtragen (schnelleres Formular; für Skript-Autoren
-`contractType`/`updatedAt` im Vertrag) und den eigenen Eintrag der neuen Version dazu.
+- **Keine passende Vorlage.** Alle 81 `VARIABLE_TEMPLATE_*` auf Symcon 9.1 durchgesehen (per
+  `get_defined_constants()` live gelesen): es gibt Leistung, Energie, Prozent, Temperatur,
+  Fenster, Tür …, aber **keinen Preis** und kein schlichtes Ja/Nein. Also Regel 2: Wertanzeige
+  mit eigenen Parametern, und **kein** `TEMPLATE` behaupten (Prüfstand wacht darüber).
+- **`MIN`/`MAX` ausdrücklich setzen** (−100 bis 500 ct/kWh). Symcon füllt sonst 0 bis 100 vor —
+  eine Vorschau, die bei 0 abschneidet, verbirgt die negativen Preise, also den Kern des Moduls.
+- **Kein Farbschlüssel.** Wertanzeige nutzt `ColorActive`/`ColorValue`, die Aufzählung `Color`;
+  falsch gesetzt stürzt nur die Mobile-App ab (von Symcon-Staff bestätigt). Diese Anzeigen
+  brauchen keine Farbe → gar keinen Farbschlüssel setzen, dann kann die Falle nicht greifen.
+  Die scharfe Prüfung „Kein ColorValue/ColorActive im Code" steht in Block 13 und bleibt.
+- **Wertanzeige, nicht Aufzählung.** Eine Aufzählung ohne `EnableAction` ist weder bearbeitbar
+  noch archivierbar (Verbund-Fund RoboHub 0.19.4). `OPTIONS` ist ein **JSON-String**, kein Array.
+- **Nutzer-Hoheit.** Die Darstellung des Nutzers liegt in `VariableCustomPresentation` und
+  gewinnt; `MaintainVariable` schreibt nur `VariablePresentation`. Live geprüft am 23.11.2026:
+  bei allen Börsenpreis-Variablen auf Dietmars Anlage war `VariableCustomPresentation` leer.
+- **Alte Profile bleiben stehen** (fremde Skripte), werden nur nicht mehr erzeugt.
+- `MaintainVariable($Ident, $Name, $Typ, $ProfilOderDarstellung, $Position, $Beibehalten)`: Der
+  letzte Parameter ist **Register/Unregister** (`false` löscht die Variable!), **nicht** ein
+  „KeepProfile". Das stand hier früher falsch.
+
+Prüfstand Block 34 prüft das ausgelieferte Darstellungs-Array (der Harness merkt sich jeden
+`MaintainVariable`-Aufruf in `$GLOBALS['MAINTAIN']`), in beiden Sprachen; sechs Gegenproben.
+
+**`NEWS_VERSIONS` braucht je veröffentlichter Version einen Eintrag.** Live-Fund 23.11.2026: Die
+Liste endete bei 0.10.0, eine Anlage mit 0.11.0 bekam deshalb „🆕 Neu bis Version 0.10.0" zu
+sehen. Beim Release immer mitpflegen; Block 27 prüft die Lücke seit 0.10.0.
 
 ## Roadmap / bewusst nicht drin
 

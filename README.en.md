@@ -86,6 +86,12 @@ count as their weekday.
 | `TomorrowAvailable` | Prices for tomorrow published | bool (yes/no) |
 | `MarketData` | Market data (Energy Manager) | string, JSON `[{start, end, price}]` — retail price for the Symcon Energy Manager, see above |
 
+Since 0.12.0 the variables carry a **Symcon presentation** instead of the module's own profiles:
+„Exchange price now“ a value presentation with ct/kWh and two decimals, the two yes/no displays a
+value presentation with the options Yes and No. A presentation you set yourself is kept — the
+module only writes its own. The former profiles `SPOT.CentKWh` and `SPOT.YesNo` are **not
+deleted**: your own scripts referring to them keep working.
+
 The look back (`SPOT_GetPriceHistory`, chart of past days in the NRG-Stack dashboard) comes from
 the archive of „Exchange price now“. Archiving only happens when the checkbox **„Archive price
 history“** in the panel „Exchange prices“ is ticked (default: off); the module then switches

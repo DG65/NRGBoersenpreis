@@ -29,6 +29,11 @@ const VARIABLETYPE_STRING = 3;
 $GLOBALS['VARS'] = [];      // id => [type, value, name, ident, parent, profile]
 $GLOBALS['NEXT_ID'] = 50000;
 $GLOBALS['PROFILES'] = [];
+$GLOBALS['MAINTAIN'] = [];
+// Darstellungs-Konstanten, wörtlich aus get_defined_constants() auf Symcon 9.1 (23.11.2026).
+const VARIABLE_PRESENTATION_VALUE_PRESENTATION = '{3319437D-7CDE-699D-750A-3C6A3841FA75}';
+const VARIABLE_PRESENTATION_ENUMERATION        = '{52D9E126-D7D2-2CBB-5E62-4CF7BA7C5D82}';
+const VARIABLE_PRESENTATION_LEGACY             = '{4153A8D4-5C33-C65F-C1F3-7B61AAF99B1C}';
 $GLOBALS['LOG'] = [];
 $GLOBALS['HTTP'] = [];      // Warteschlange der nächsten Antworten
 $GLOBALS['REQUESTS'] = [];  // abgefragte URLs
@@ -128,8 +133,12 @@ class IPSModule
     }
     public function LogMessage(string $text, int $level): void { $GLOBALS['LOG'][] = $level . ': ' . $text; }
     public function UpdateFormField(string $n, string $p, $v): void { $this->fieldUpdates[] = [$n, $p, $v]; }
-    public function MaintainVariable(string $ident, string $name, int $type, string $profile, int $pos, bool $keep): void
+    /** $profile ist seit Symcon 8 „Profil ODER Darstellung" — String oder Array (SDK: mixed). */
+    public function MaintainVariable(string $ident, string $name, int $type, $profile, int $pos, bool $keep): void
     {
+        // Jeder Aufruf merkt sich, was das Modul übergeben hat — auch für bestehende Variablen,
+        // damit der Prüfstand die Umstellung von Profil auf Darstellung sehen kann.
+        $GLOBALS['MAINTAIN'][$ident] = ['type' => $type, 'profile' => $profile, 'pos' => $pos, 'keep' => $keep, 'name' => $name];
         if ($keep && IPS_GetObjectIDByIdent($ident, $this->InstanceID) === false) {
             $def = [VARIABLETYPE_BOOLEAN => false, VARIABLETYPE_INTEGER => 0, VARIABLETYPE_FLOAT => 0.0, VARIABLETYPE_STRING => ''][$type];
             $GLOBALS['VARS'][$GLOBALS['NEXT_ID']++] = ['type' => $type, 'value' => $def, 'name' => $name, 'ident' => $ident, 'parent' => $this->InstanceID, 'profile' => $profile];
@@ -271,7 +280,10 @@ $GLOBALS['HTTP'][] = ok(ecFirst('ec-DE-LU-2026-09-12_13.json', 96));
 $m->ApplyChanges();
 check('Genau ein Abruf', count($GLOBALS['REQUESTS']) === 1);
 check('URL: Energy-Charts, DE-LU, heute bis morgen', ($GLOBALS['REQUESTS'][0] ?? '') === 'https://api.energy-charts.info/price?bzn=DE-LU&start=2026-09-12&end=2026-09-13', $GLOBALS['REQUESTS'][0] ?? '-');
-check('Profile SPOT.CentKWh (2 Stellen, ct/kWh) und SPOT.YesNo angelegt', ($GLOBALS['PROFILES']['SPOT.CentKWh']['suffix'] ?? '') === ' ct/kWh' && ($GLOBALS['PROFILES']['SPOT.YesNo']['assoc']['1'] ?? '') === 'Ja');
+// Seit 0.12.0 Darstellungen statt eigener Profile (SUITE.md, verbindlich 23.11.2026)
+check('Keine eigenen Profile mehr angelegt (SPOT.CentKWh / SPOT.YesNo)',
+    !isset($GLOBALS['PROFILES']['SPOT.CentKWh']) && !isset($GLOBALS['PROFILES']['SPOT.YesNo']),
+    implode(', ', array_keys($GLOBALS['PROFILES'])));
 check('Status 102', $m->status === 102, 'ist ' . $m->status);
 $ec = json_decode(fx('ec-DE-LU-2026-09-12_13.json'), true);
 $idx10 = array_search(ts('2026-09-12 10:00:00'), $ec['unix_seconds'], true);
@@ -572,7 +584,10 @@ $code = file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.php');
 $codeOnly = '';
 foreach (token_get_all($code) as $t) { $codeOnly .= (is_array($t) && in_array($t[0], [T_COMMENT, T_DOC_COMMENT], true)) ? '' : (is_array($t) ? $t[1] : $t); }
 check('Keine feste Tageslänge (86400) im Code (Kommentare ausgenommen)', !str_contains($codeOnly, '86400'));
-check('Kein ColorValue/ColorActive (Mobile-App-Absturz)', !preg_match('/ColorValue|ColorActive/', $code));
+// Pitfall 21: In der Wertanzeige heißen die Farbfelder ColorActive/ColorValue, in der Aufzählung
+// Color — falsch gesetzt stürzt nur die Mobile-App ab. Dieses Modul setzt gar keinen Farbschlüssel.
+// Geprüft wird der CODE; der Kommentar in presentationYesNo() darf die Falle beim Namen nennen.
+check('Kein ColorValue/ColorActive im Code (Mobile-App-Absturz)', !preg_match('/ColorValue|ColorActive/', $codeOnly));
 check('Kein @ vor IPS_Set*/SetValue (stille Fehlschläge)', !preg_match('/@(IPS_Set|SetValue)/', $code));
 // Y-m-d nur als Maschinenformat: 2× Energy-Charts-URL, 1× Datumsvergleich in parseTibber() — nie in Texten.
 check('Sichtbare Datumsangaben immer mit Jahr (TT.MM.JJJJ, Store-Checkliste 9b)', !preg_match("/date\\('d\\.m\\.[ ']/", $codeOnly) && substr_count($codeOnly, "date('Y-m-d'") === 3);
@@ -1004,28 +1019,35 @@ $GLOBALS['VARS'] = [];
 $n1 = new SpotTest();
 $n1->Create();
 $p1 = $news($n1);
-check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.10.0'
-    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.10.0:'), $p1['caption'] ?? '-');
+check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.12.0'
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.12.0:'), $p1['caption'] ?? '-');
 $n1->attrs['SeenNews'] = '0.6.0';
 $p2 = $news($n1);
 check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
     && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
-$n1->attrs['SeenNews'] = '0.10.0';
+$n1->attrs['SeenNews'] = '0.12.0';
 check('Alles gesehen: kein Banner', $news($n1) === null);
+// Gegenprobe zum Live-Fund vom 23.11.2026: Vor 0.12.0 endete die Liste bei 0.10.0, und eine Anlage
+// mit 0.11.0 bekam den Banner „Neu bis Version 0.10.0" zu sehen. Jede veröffentlichte Version
+// braucht einen Eintrag.
+$n1->attrs['SeenNews'] = '0.10.0';
+check('Wer bis 0.10.0 gelesen hat, bekommt 0.11.0 UND 0.12.0 nachgereicht',
+    str_contains($newsText($news($n1)), 'Version 0.11.0:') && str_contains($newsText($news($n1)), 'Version 0.12.0:')
+    && !str_contains($newsText($news($n1)), 'Version 0.10.0:'));
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.10.0-beta.2';
+$GLOBALS['LIB_VERSION'] = '0.12.0-beta.2';
 $n1->AckNews();
-check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.10.0-beta.2 → 0.10.0)', $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.12.0-beta.2 → 0.12.0)', $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null, $n1->attrs['SeenNews']);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.11.1';
+$GLOBALS['LIB_VERSION'] = '0.12.1';
 $n1->AckNews();
-check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.11.1)', $n1->attrs['SeenNews'] === '0.11.1');
+check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.12.1)', $n1->attrs['SeenNews'] === '0.12.1');
 check('Die höchste News-Version kommt aus version_compare, nicht aus der Reihenfolge im Array',
-    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null; })());
+    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null; })());
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
-check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.10.0' && $news($n1) === null);
+check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null);
 
 heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
@@ -1043,8 +1065,22 @@ heading('29. Symcon-Start und Darstellungen (Store-Review-Checkliste 16/17, 18.1
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');
 check('Keine MaintainVariable(..., false) — Variablen werden nie gelöscht, auch nicht nach Fremdabfragen',
     preg_match('/MaintainVariable\([^;]*,\s*false\s*\)/', $src) === 0);
-check('Keine Presentation-OPTIONS: klassische Profile, damit die Farb-Schlüssel-Falle (Color vs. ColorValue) nicht greifen kann',
-    !str_contains($src, 'PRESENTATION') && !str_contains($src, "'OPTIONS'"));
+// Bis 0.11.0 stand hier das Gegenteil (keine Darstellungen, nur klassische Profile). Seit der
+// Verbund-Regel vom 23.11.2026 sind Darstellungen Pflicht — die Farb-Schlüssel-Falle wird jetzt
+// nicht durch Vermeidung entschärft, sondern geprüft: Wertanzeige = ColorActive/ColorValue.
+// Die Farb-Schlüssel-Falle (Pitfall 21: Wertanzeige ColorActive/ColorValue, Aufzählung Color —
+// falsch gesetzt stürzt nur die Mobile-App ab) wird hier durch VERMEIDUNG entschärft: Diese zwei
+// Anzeigen brauchen keine Farbe, also steht kein Farbschlüssel im Modul. Die scharfe Prüfung
+// „Kein ColorValue/ColorActive" steht weiter unten in Block 13 und bleibt gültig.
+check('Options-Schlüssel nur Value/Caption/IconActive/IconValue — kein Farbschlüssel',
+    preg_match("/'Color[A-Za-z]*'\s*=>/", $src) === 0);
+// Kommentare ausnehmen: sie dürfen die Vorlagen erklären, der Code nutzt keine.
+$srcCode = '';
+foreach (token_get_all($src) as $tk) {
+    $srcCode .= (is_array($tk) && in_array($tk[0], [T_COMMENT, T_DOC_COMMENT], true)) ? '' : (is_array($tk) ? $tk[1] : $tk);
+}
+check('Keine Vorlage (TEMPLATE) behauptet, wo keine passt — Preis und Ja/Nein haben keine',
+    !str_contains($srcCode, 'VARIABLE_TEMPLATE_') && !str_contains($srcCode, "'TEMPLATE'"));
 // Start von Symcon: Fremdmodule (Tibber Grid Rewards, Archiv) sind noch nicht da.
 clock('2026-09-12 10:00:00');
 $GLOBALS['VARS'] = [];
@@ -1309,6 +1345,62 @@ $GLOBALS['ADOPT_CALLS'] = 0;
 form($neu33); form($neu33);
 check('… und fragt danach nie wieder (einmalig, kein Aufruf je Formularaufbau)', $GLOBALS['ADOPT_CALLS'] === 0, (string)$GLOBALS['ADOPT_CALLS']);
 $GLOBALS['INSTANCES'] = []; $GLOBALS['SPOT_OBJ'] = []; $GLOBALS['REQUESTS'] = [];
+
+// ---------------------------------------------------------------------------
+heading('34. Darstellungen statt eigener Profile (SUITE.md, verbindlich 23.11.2026)');
+clock('2026-11-23 10:00:00');
+$GLOBALS['VARS'] = []; $GLOBALS['PROFILES'] = []; $GLOBALS['MAINTAIN'] = [];
+$GLOBALS['REQUESTS'] = []; $GLOBALS['HTTP'] = [];
+$d34 = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$d34->ApplyChanges();
+
+$VP34 = '{3319437D-7CDE-699D-750A-3C6A3841FA75}'; // Wertanzeige
+check('Keine eigenen Profile mehr angelegt', $GLOBALS['PROFILES'] === [], implode(', ', array_keys($GLOBALS['PROFILES'])));
+
+// „Börsenpreis jetzt": Wertanzeige mit ct/kWh
+$pr34 = $GLOBALS['MAINTAIN']['CurrentPrice']['profile'] ?? null;
+check('CurrentPrice bekommt eine Darstellung (Array), kein Profil (String)', is_array($pr34), gettype($pr34));
+check('… Wertanzeige mit Suffix " ct/kWh" und 2 Nachkommastellen',
+    ($pr34['PRESENTATION'] ?? '') === $VP34 && ($pr34['SUFFIX'] ?? '') === ' ct/kWh' && ($pr34['DIGITS'] ?? -1) === 2,
+    json_encode($pr34, JSON_UNESCAPED_UNICODE));
+// Der Kern dieses Moduls sind negative Preise — eine Vorschau, die bei 0 beginnt, würde sie verstecken
+check('… MIN deckt negative Preise ab und MAX die technische Preisgrenze der Börse',
+    ($pr34['MIN'] ?? 0) <= -50 && ($pr34['MAX'] ?? 0) >= 400, 'MIN=' . ($pr34['MIN'] ?? '-') . ' MAX=' . ($pr34['MAX'] ?? '-'));
+
+// Ja/Nein-Anzeigen
+foreach (['NegativeNow', 'TomorrowAvailable'] as $i34) {
+    $p34 = $GLOBALS['MAINTAIN'][$i34]['profile'] ?? null;
+    check($i34 . ': Wertanzeige mit OPTIONS (kein Profil, keine Aufzählung)',
+        is_array($p34) && ($p34['PRESENTATION'] ?? '') === $VP34 && isset($p34['OPTIONS']));
+    $o34 = json_decode((string)($p34['OPTIONS'] ?? ''), true);
+    check($i34 . ': OPTIONS ist ein JSON-STRING mit genau Nein=false und Ja=true (deutsche Oberfläche)',
+        is_array($o34) && count($o34) === 2
+        && $o34[0]['Value'] === false && $o34[0]['Caption'] === 'Nein'
+        && $o34[1]['Value'] === true && $o34[1]['Caption'] === 'Ja',
+        is_array($o34) ? json_encode(array_column($o34, 'Caption'), JSON_UNESCAPED_UNICODE) : 'kein Array');
+    check($i34 . ': Option trägt keinen Farbschlüssel (Pitfall 21)',
+        is_array($o34) && array_keys($o34[0]) === ['Value', 'Caption', 'IconActive', 'IconValue'],
+        is_array($o34) ? implode(', ', array_keys($o34[0])) : '-');
+}
+
+// Symcon-Standardprofile bleiben unangetastet
+check('NextNegativeStart behält ~UnixTimestamp, MarketData ~TextBox (Symcon-Standard, kein eigenes Profil)',
+    ($GLOBALS['MAINTAIN']['NextNegativeStart']['profile'] ?? '') === '~UnixTimestamp'
+    && ($GLOBALS['MAINTAIN']['MarketData']['profile'] ?? '') === '~TextBox');
+
+// Englische Oberfläche: die Beschriftungen der Optionen sind WERTE, die übersetzt das Modul selbst
+$GLOBALS['LOCALE'] = 'en';
+$GLOBALS['VARS'] = []; $GLOBALS['MAINTAIN'] = [];
+$e34 = fresh();
+$GLOBALS['HTTP'][] = ok(fx('ec-DE-LU-2026-09-12_13.json'));
+$e34->ApplyChanges();
+$oe34 = json_decode((string)($GLOBALS['MAINTAIN']['NegativeNow']['profile']['OPTIONS'] ?? ''), true);
+check('Englische Oberfläche: Optionen heißen No/Yes (Werte übersetzt das Modul, nicht die Konsole)',
+    is_array($oe34) && $oe34[0]['Caption'] === 'No' && $oe34[1]['Caption'] === 'Yes',
+    is_array($oe34) ? implode('/', array_column($oe34, 'Caption')) : '-');
+$GLOBALS['LOCALE'] = 'de';
+$GLOBALS['VARS'] = []; $GLOBALS['MAINTAIN'] = []; $GLOBALS['REQUESTS'] = [];
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
