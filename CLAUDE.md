@@ -170,6 +170,31 @@ Lag er auf dem alten Grundgerüst-`main` ohne `library.json`, brach die Installa
 repository seems corrupted. library.json is at least missing! (Code: -32603)" ab (live bei
 Dietmar 13.09.2026). Umstellen mit `gh repo edit DG65/NRGBoersenpreis --default-branch main`.
 
+## Für das nächste Release vorgemerkt
+
+**Darstellungen statt eigener Profile** (Verbund-Regel SUITE.md „Darstellungen und Vorlagen statt
+eigener Profile", verbindlich ab 23.11.2026, Hinweis der EMS-Sitzung). Das Modul legt zwei eigene
+Profile an (`ensureProfiles()`): `SPOT.CentKWh` (float, 2 Stellen, Suffix ` ct/kWh`) und
+`SPOT.YesNo` (bool, Ja/Nein). Beide haben **keine** passende Symcon-Vorlage (`VARIABLE_TEMPLATE_*`)
+— ct/kWh ist in der Vorlagenliste nicht vorgesehen, und „Fenster"/„Tür" tragen eine andere
+Bedeutung als ein schlichtes Ja/Nein. Also nach Regel 2: Darstellung mit eigenen Parametern
+(Wertanzeige mit SUFFIX bzw. Aufzählung), kein Profil. Betroffen sind `CurrentPrice`,
+`NegativeNow`, `TomorrowAvailable`; `NextNegativeStart` (`~UnixTimestamp`) und `MarketData`
+(`~TextBox`) nutzen Symcon-Standardprofile und bleiben vorerst. Beim Umbau beachten:
+- **Nutzer-eigene Darstellungen gehen vor und bleiben** — `MaintainVariable` benennt auch nie um.
+- `SPOT.*`-Profile **nicht löschen**, solange Variablen sie nutzen (fremde Skripte).
+- Umstellung im Release-Text erwähnen (Skripte, die auf die Profilnamen zeigen).
+- Vorher/Nachher-Vergleich: Migrationsvergleich nach dem Commit.
+- Falle laut SUITE.md: `IPS_GetVariablePresentation()` lässt `TEMPLATE` weg (dafür
+  `IPS_GetVariable($id)['VariablePresentation']['TEMPLATE']`); nur `TEMPLATE` ohne `PRESENTATION`
+  lehnt `IPS_SetVariableCustomPresentation` ab; seit 9.1 werden Darstellungsparameter validiert.
+- Die Symcon-API zuerst an der Doku gegenprüfen, nicht aus der Analogie annehmen.
+
+**`NEWS_VERSIONS` fehlt der Eintrag für 0.11.0** (Live-Fund 23.11.2026): Auf einer Anlage mit
+0.11.0 zeigt der Banner „🆕 Neu bis Version 0.10.0", weil die Liste bei `'0.10.0'` endet. Beim
+nächsten Release den Eintrag für 0.11.0 nachtragen (schnelleres Formular; für Skript-Autoren
+`contractType`/`updatedAt` im Vertrag) und den eigenen Eintrag der neuen Version dazu.
+
 ## Roadmap / bewusst nicht drin
 
 - ENTSO-E ist seit 0.3.0 Quelle, aber nicht Standard (Token-Konto nötig); Live-Test mit echtem
