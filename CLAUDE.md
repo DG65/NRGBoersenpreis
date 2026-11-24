@@ -207,6 +207,16 @@ Prüfstand Block 34 prüft das ausgelieferte Darstellungs-Array (der Harness mer
 Liste endete bei 0.10.0, eine Anlage mit 0.11.0 bekam deshalb „🆕 Neu bis Version 0.10.0" zu
 sehen. Beim Release immer mitpflegen; Block 27 prüft die Lücke seit 0.10.0.
 
+## Für das nächste reguläre Release vorgemerkt
+
+**Typ-Spalte lesbar** (Verbund-Regel SUITE.md „Typ-Spalte: lesbarer Modulname über locale.json",
+verbindlich 24.11.2026, Hinweis der EMS-Sitzung): In `locale.json` steht unter `translations.de`
+jetzt `"Boersenpreis": "NRG-Stack Börsenpreis"` statt nur „Börsenpreis". `module.json` `name`
+bleibt **unverändert** — er ist der technische Bezeichner, über den andere Module per
+`ModuleInfo.ModuleName` suchen. Änderung liegt committet bereit und fährt beim nächsten regulären
+Release mit; **kein eigenes Release nur dafür** (so die Regel). Prüfstand Block 35 wacht darüber.
+In einer englischen Konsole steht weiter der Bezeichner — das ist laut Regel hinzunehmen.
+
 ## Roadmap / bewusst nicht drin
 
 - ENTSO-E ist seit 0.3.0 Quelle, aber nicht Standard (Token-Konto nötig); Live-Test mit echtem

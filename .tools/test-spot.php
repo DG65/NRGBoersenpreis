@@ -1379,7 +1379,12 @@ foreach (['NegativeNow', 'TomorrowAvailable'] as $i34) {
         && $o34[0]['Value'] === false && $o34[0]['Caption'] === 'Nein'
         && $o34[1]['Value'] === true && $o34[1]['Caption'] === 'Ja',
         is_array($o34) ? json_encode(array_column($o34, 'Caption'), JSON_UNESCAPED_UNICODE) : 'kein Array');
-    check($i34 . ': Option trägt keinen Farbschlüssel (Pitfall 21)',
+    // Live bestätigt am 24.11.2026 auf Privat: Lässt das Modul die Farbfelder weg, ergänzt der Kernel
+// beim Auflösen selbst ColorActive/ColorValue/ContentColorActive/ContentColorValue mit gültigen
+// Werten (false/-1). Genau deshalb ist Weglassen sicherer als Selbst-Setzen — die Mobile-App
+// bekommt gültige Zahlen, und der Schlüssel kann nicht mit dem `Color` der Aufzählung verwechselt
+// werden.
+check($i34 . ': Option trägt keinen Farbschlüssel (Pitfall 21)',
         is_array($o34) && array_keys($o34[0]) === ['Value', 'Caption', 'IconActive', 'IconValue'],
         is_array($o34) ? implode(', ', array_keys($o34[0])) : '-');
 }
@@ -1401,6 +1406,18 @@ check('Englische Oberfläche: Optionen heißen No/Yes (Werte übersetzt das Modu
     is_array($oe34) ? implode('/', array_column($oe34, 'Caption')) : '-');
 $GLOBALS['LOCALE'] = 'de';
 $GLOBALS['VARS'] = []; $GLOBALS['MAINTAIN'] = []; $GLOBALS['REQUESTS'] = [];
+
+// ---------------------------------------------------------------------------
+heading('35. Typ-Spalte: lesbarer Modulname (SUITE.md, verbindlich 24.11.2026)');
+$modJson = json_decode(file_get_contents(dirname(__DIR__) . '/Boersenpreis/module.json'), true);
+$locJson = json_decode(file_get_contents(dirname(__DIR__) . '/Boersenpreis/locale.json'), true);
+$de35 = $locJson['translations']['de'] ?? [];
+$name35 = (string)($modJson['name'] ?? '');
+check('module.json name unverändert "Boersenpreis" (technischer Bezeichner, nie umbenennen)', $name35 === 'Boersenpreis', $name35);
+check('locale.json übersetzt ihn in den lesbaren Namen "NRG-Stack Börsenpreis"',
+    ($de35[$name35] ?? '') === 'NRG-Stack Börsenpreis', $de35[$name35] ?? 'FEHLT');
+check('Muster <Marke> <Produkt>: Marke NRG-Stack, keine Rolle (dies ist das Hauptmodul)',
+    preg_match('/^NRG-Stack \S+$/u', (string)($de35[$name35] ?? '')) === 1);
 
 echo "\n" . str_repeat('-', 62) . "\n";
 if ($fails === 0) {
