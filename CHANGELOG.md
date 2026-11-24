@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen an diesem Modul werden hier dokumentiert.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.0.0/).
 
+## [0.12.1] - 2026-11-24
+
+### Changed
+- **Die Spalte „Typ" im Objektbaum zeigt jetzt „NRG-Stack Börsenpreis"** statt des nackten
+  Bezeichners „Boersenpreis" (Verbund-Regel SUITE.md „Typ-Spalte: lesbarer Modulname über
+  locale.json", verbindlich 24.11.2026). Geändert wird nur die Übersetzung in `locale.json`; der
+  `name` in `module.json` bleibt **unverändert**, weil andere Module über
+  `ModuleInfo.ModuleName` nach ihm suchen. In einer englischen Konsole steht weiter der
+  Bezeichner — Symcon übersetzt dort nicht.
+
 ## [0.12.0] - 2026-11-23
 
 ### Changed

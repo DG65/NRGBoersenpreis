@@ -95,6 +95,9 @@ class Boersenpreis extends IPSModule
         '0.12.0' => [
             'The variables "Exchange price now", "Negative exchange price now" and "Prices for tomorrow published" now use a Symcon presentation instead of the module\'s own profiles SPOT.CentKWh and SPOT.YesNo. It looks the same - ct/kWh with two decimals, Yes/No - but follows the Symcon standard. A presentation you set yourself stays untouched. The two old profiles are kept, not deleted: scripts that reference them keep working.',
         ],
+        '0.12.1' => [
+            'The column „Type" in the object tree now shows „NRG-Stack Boersenpreis" instead of the bare identifier „Boersenpreis" (German console).',
+        ],
     ];
     // Einheitliche Breite aller Eingabefelder: Symcon zeigt die Beschriftung IM Feld — Beschriftungen
     // kurz halten, Erklärungen als Label. Labels bleiben einfache Labels (Symcon bricht sie über die

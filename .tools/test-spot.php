@@ -1014,40 +1014,49 @@ $news = function (SpotTest $o) {
     return null;
 };
 $newsText = function (?array $panel) { return $panel === null ? '' : json_encode($panel, JSON_UNESCAPED_UNICODE); };
+// Die hoechste News-Version NICHT fest eintragen: sie wandert mit jedem Release. Der Prüfstand
+// liest sie aus der Konstante des Moduls — so muss hier bei einer neuen Version nichts nachgezogen
+// werden, und die Prüfungen bleiben trotzdem scharf (Reihenfolge im Array wird ignoriert).
+$newsVersionen = array_keys((new ReflectionClass('Boersenpreis'))->getConstants()['NEWS_VERSIONS']);
+$hoch = array_reduce($newsVersionen, fn($a, $b) => ($a === null || version_compare($b, $a, '>')) ? $b : $a);
+echo '  (hoechste News-Version laut Modul: ' . $hoch . ")\n";
 clock('2026-09-23 10:00:00');
 $GLOBALS['VARS'] = [];
 $n1 = new SpotTest();
 $n1->Create();
 $p1 = $news($n1);
-check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version 0.12.0'
-    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version 0.12.0:'), $p1['caption'] ?? '-');
+check('Frische Instanz: Banner nennt die höchste Version, alle Versionen nach Version gruppiert', ($p1['caption'] ?? '') === '🆕  Neu bis Version ' . $hoch
+    && str_contains($newsText($p1), 'Version 0.6.0:') && str_contains($newsText($p1), 'Version ' . $hoch . ':'), $p1['caption'] ?? '-');
 $n1->attrs['SeenNews'] = '0.6.0';
 $p2 = $news($n1);
 check('Zuletzt gesehen 0.6.0: nur die Lücke (0.6.1 + 0.7.0), nichts aus 0.6.0', str_contains($newsText($p2), 'Version 0.6.1:') && str_contains($newsText($p2), 'Version 0.7.0:')
     && !str_contains($newsText($p2), 'Version 0.6.0:') && !str_contains($newsText($p2), 'Neuer Name'));
-$n1->attrs['SeenNews'] = '0.12.0';
+$n1->attrs['SeenNews'] = $hoch;
 check('Alles gesehen: kein Banner', $news($n1) === null);
 // Gegenprobe zum Live-Fund vom 23.11.2026: Vor 0.12.0 endete die Liste bei 0.10.0, und eine Anlage
 // mit 0.11.0 bekam den Banner „Neu bis Version 0.10.0" zu sehen. Jede veröffentlichte Version
 // braucht einen Eintrag.
 $n1->attrs['SeenNews'] = '0.10.0';
-check('Wer bis 0.10.0 gelesen hat, bekommt 0.11.0 UND 0.12.0 nachgereicht',
-    str_contains($newsText($news($n1)), 'Version 0.11.0:') && str_contains($newsText($news($n1)), 'Version 0.12.0:')
+$offen = array_values(array_filter($newsVersionen, fn($v) => version_compare($v, '0.10.0', '>')));
+check('Wer bis 0.10.0 gelesen hat, bekommt JEDE neuere Version nachgereicht (' . implode(', ', $offen) . ')',
+    count($offen) > 0
+    && count(array_filter($offen, fn($v) => !str_contains($newsText($news($n1)), 'Version ' . $v . ':'))) === 0
     && !str_contains($newsText($news($n1)), 'Version 0.10.0:'));
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.12.0-beta.2';
+$GLOBALS['LIB_VERSION'] = $hoch . '-beta.2';
 $n1->AckNews();
-check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (0.12.0-beta.2 → 0.12.0)', $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null, $n1->attrs['SeenNews']);
+check('Bestätigen merkt die installierte Bibliotheksversion ohne Beta-Zusatz (höchste + "-beta.2")', $n1->attrs['SeenNews'] === $hoch && $news($n1) === null, $n1->attrs['SeenNews']);
 $n1->attrs['SeenNews'] = '';
-$GLOBALS['LIB_VERSION'] = '0.12.1';
+$neuer = $hoch . '.99';   // sicher neuer als jeder Eintrag
+$GLOBALS['LIB_VERSION'] = $neuer;
 $n1->AckNews();
-check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion (0.12.1)', $n1->attrs['SeenNews'] === '0.12.1');
+check('Bibliothek neuer als der letzte Eintrag: dann gilt die Bibliotheksversion', $n1->attrs['SeenNews'] === $neuer, $n1->attrs['SeenNews']);
 check('Die höchste News-Version kommt aus version_compare, nicht aus der Reihenfolge im Array',
-    (function () use ($n1, $news) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null; })());
+    (function () use ($n1, $news, $hoch) { $n1->attrs['SeenNews'] = ''; $GLOBALS['LIB_VERSION'] = '0.0.0-test'; $n1->AckNews(); return $n1->attrs['SeenNews'] === $hoch && $news($n1) === null; })());
 $n1->attrs['SeenNews'] = '';
 $GLOBALS['LIB_VERSION'] = '0.0.0-test';
 $n1->AckNews();
-check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === '0.12.0' && $news($n1) === null);
+check('Bibliothek unbekannt/älter: Rückfall auf die höchste News-Version, Banner bleibt weg', $n1->attrs['SeenNews'] === $hoch && $news($n1) === null);
 
 heading('28. Logging über $this->LogMessage (Store-Review-Checkliste 15, 12.10.2026)');
 $src = file_get_contents(getenv('SPOT_TEST_MODULE') ?: dirname(__DIR__) . '/Boersenpreis/module.php');

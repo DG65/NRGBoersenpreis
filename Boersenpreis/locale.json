@@ -21,6 +21,7 @@
       "Bidding zone": "Gebotszone",
       "Bidding zone: the zone of your grid connection — Germany and Luxembourg together form \"DE-LU\", Austria is \"AT\". The price is the same throughout the zone.": "Gebotszone: die Zone deines Netzanschlusses — Deutschland und Luxemburg bilden gemeinsam „DE-LU\", Österreich ist „AT\". Der Preis ist in der ganzen Zone gleich.",
       "Boersenpreis": "NRG-Stack Börsenpreis",
+      "The column \u201eType\" in the object tree now shows \u201eNRG-Stack Boersenpreis\" instead of the bare identifier \u201eBoersenpreis\" (German console).": "Die Spalte \u201eTyp\" im Objektbaum zeigt jetzt \u201eNRG-Stack Börsenpreis\" statt des nackten Bezeichners \u201eBoersenpreis\".",
       "Born out of real enthusiasm for my own energy system — and a few evenings spent typing. Still: hobby or not, this is intellectual property and real work went into it.": "Entstanden aus echter Begeisterung für die eigene Anlage — und ein paar durchgetippten Abenden. Trotzdem: Software-Hobby hin oder her, das hier ist geistiges Eigentum und echte Arbeit steckt drin.",
       "Börsenpreis is new — feedback, especially on the sources and on the tariff for the Energy Manager, is very welcome in the community thread.": "Börsenpreis ist neu — Rückmeldungen, gerade zu den Quellen und zum Tarif für den Energie Manager, sind ausdrücklich willkommen im Community-Thread.",
       "Collapsed": "Zugeklappt",
